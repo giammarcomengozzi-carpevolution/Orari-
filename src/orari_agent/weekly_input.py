@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .business_rules import ActivityId, WEEK_DAYS
 from .people import ANGELO, GIAMMARCO, LORENZO
 
 
@@ -43,6 +44,10 @@ PEOPLE_ALIASES = {
     "sansavini": LORENZO.full_name,
 }
 
+FULL_DAY = "full_day"
+MORNING = "morning"
+AFTERNOON = "afternoon"
+
 
 @dataclass(frozen=True)
 class ExternalWorkRequest:
@@ -52,6 +57,36 @@ class ExternalWorkRequest:
     start: str
     end: str
     label: str
+
+
+@dataclass(frozen=True)
+class CoverageRequest:
+    """Copertura manuale richiesta dall'utente."""
+
+    day: str
+    person: str
+    activity: ActivityId
+    start: str
+    end: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ClosureRequest:
+    """Chiusura eccezionale di una attività per giorno/fascia."""
+
+    day: str
+    activity: ActivityId
+    period: str
+
+
+@dataclass(frozen=True)
+class OpeningRequest:
+    """Apertura eccezionale di una attività normalmente chiusa."""
+
+    day: str
+    activity: ActivityId
+    period: str
 
 
 @dataclass
@@ -66,17 +101,48 @@ class WeeklyInstruction:
     giammarco_external_work: list[ExternalWorkRequest] = field(default_factory=list)
     high_lake_booking_days: set[str] = field(default_factory=set)
     unavailable_by_person: dict[str, set[str]] = field(default_factory=dict)
+    morning_absence_by_person: dict[str, set[str]] = field(default_factory=dict)
+    afternoon_absence_by_person: dict[str, set[str]] = field(default_factory=dict)
+    forced_shop_coverage: list[CoverageRequest] = field(default_factory=list)
+    forced_lake_coverage: list[CoverageRequest] = field(default_factory=list)
+    lake_opening_coverage: list[CoverageRequest] = field(default_factory=list)
+    lake_closing_coverage: list[CoverageRequest] = field(default_factory=list)
+    extra_lake_coverage_days: set[str] = field(default_factory=set)
+    extra_lake_coverage: list[CoverageRequest] = field(default_factory=list)
+    exceptional_closures: list[ClosureRequest] = field(default_factory=list)
+    exceptional_openings: list[OpeningRequest] = field(default_factory=list)
     unknown_notes: list[str] = field(default_factory=list)
 
     def unavailable_days_for(self, person: str) -> set[str]:
-        """Restituisce i giorni in cui una persona non è disponibile."""
+        """Restituisce i giorni in cui una persona non è disponibile tutto il giorno."""
 
         return self.unavailable_by_person.get(person, set())
+
+    def morning_absence_days_for(self, person: str) -> set[str]:
+        """Restituisce i giorni in cui una persona non è disponibile la mattina."""
+
+        return self.morning_absence_by_person.get(person, set())
+
+    def afternoon_absence_days_for(self, person: str) -> set[str]:
+        """Restituisce i giorni in cui una persona non è disponibile il pomeriggio."""
+
+        return self.afternoon_absence_by_person.get(person, set())
 
     def external_work_for(self, day: str) -> list[ExternalWorkRequest]:
         """Restituisce gli impegni aziendali esterni di Giammarco per il giorno."""
 
         return [request for request in self.giammarco_external_work if request.day == day]
+
+    def person_is_absent_for_range(self, person: str, day: str, start: str, end: str) -> bool:
+        """Indica se una persona è assente per una parte della fascia richiesta."""
+
+        if day in self.unavailable_days_for(person):
+            return True
+        start_minutes = _to_minutes(start)
+        end_minutes = _to_minutes(end)
+        if day in self.morning_absence_days_for(person) and start_minutes < _to_minutes("14:00"):
+            return True
+        return day in self.afternoon_absence_days_for(person) and end_minutes > _to_minutes("14:00")
 
     # Compatibilità con test e chiamanti esistenti che accedevano a campi dedicati.
     @property
@@ -92,7 +158,6 @@ class WeeklyInstruction:
         return self.unavailable_days_for(GIAMMARCO.full_name)
 
 
-
 def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
     """Estrae le istruzioni supportate da un testo libero italiano/inglese."""
 
@@ -105,6 +170,7 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
         lowered = sentence.lower()
         days = _days_in_text(lowered)
         people = _people_in_text(lowered)
+        period = _period_in_text(lowered)
 
         if GIAMMARCO.full_name in people and _mentions_shop(lowered) and not days:
             requested_count = _requested_day_count(lowered)
@@ -116,13 +182,21 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
             instruction.unknown_notes.append(sentence)
             continue
 
-        if people and _mentions_unavailability(lowered):
-            for person in people:
-                instruction.unavailable_by_person.setdefault(person, set()).update(days)
+        if _mentions_only_morning_opening(lowered) and (_mentions_lake(lowered) or _mentions_shop(lowered)):
+            _add_exceptional_closure(instruction, days, lowered, AFTERNOON)
             continue
 
-        if LORENZO.full_name in people and _mentions_opening_lake(lowered):
-            instruction.lorenzo_must_open_lake_days.update(days)
+        if _mentions_closure(lowered) and (_mentions_lake(lowered) or _mentions_shop(lowered)):
+            _add_exceptional_closure(instruction, days, lowered, period)
+            continue
+
+        if _mentions_exceptional_opening(lowered) and (_mentions_lake(lowered) or _mentions_shop(lowered)):
+            _add_exceptional_opening(instruction, days, lowered, period)
+            continue
+
+        if people and _mentions_unavailability(lowered):
+            for person in people:
+                _add_absence(instruction, person, days, period)
             continue
 
         if GIAMMARCO.full_name in people and _mentions_external_work(lowered):
@@ -132,12 +206,58 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
                 )
             continue
 
-        if GIAMMARCO.full_name in people and _mentions_shop(lowered):
-            instruction.giammarco_shop_days.update(days)
+        if people and _mentions_lake(lowered) and _mentions_opening(lowered):
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(day, person, ActivityId.LAKE, "07:30", "14:00", "apertura lago")
+                    instruction.lake_opening_coverage.append(request)
+                    instruction.forced_lake_coverage.append(request)
+                    if person == LORENZO.full_name:
+                        instruction.lorenzo_must_open_lake_days.add(day)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_lake_days.add(day)
             continue
 
-        if GIAMMARCO.full_name in people and _mentions_lake(lowered):
-            instruction.giammarco_lake_days.update(days)
+        if people and _mentions_lake(lowered) and _mentions_closing(lowered):
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(day, person, ActivityId.LAKE, "14:00", "18:30", "chiusura lago")
+                    instruction.lake_closing_coverage.append(request)
+                    instruction.forced_lake_coverage.append(request)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_lake_days.add(day)
+            continue
+
+        if people and _mentions_shop(lowered):
+            for person in people:
+                for day in days:
+                    for start, end in _shop_ranges_for_period(period):
+                        instruction.forced_shop_coverage.append(
+                            CoverageRequest(day, person, ActivityId.SHOP, start, end, "copertura negozio")
+                        )
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_shop_days.add(day)
+            continue
+
+        if people and _mentions_lake(lowered):
+            for person in people:
+                for day in days:
+                    for start, end in _lake_ranges_for_period(period):
+                        instruction.forced_lake_coverage.append(
+                            CoverageRequest(day, person, ActivityId.LAKE, start, end, "copertura lago")
+                        )
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_lake_days.add(day)
+            continue
+
+        if _mentions_extra_lake_coverage(lowered):
+            instruction.extra_lake_coverage_days.update(days)
+            instruction.high_lake_booking_days.update(days)
+            for day in days:
+                for start, end in _lake_ranges_for_period(period):
+                    instruction.extra_lake_coverage.append(
+                        CoverageRequest(day, GIAMMARCO.full_name, ActivityId.LAKE, start, end, "copertura extra lago")
+                    )
             continue
 
         if _mentions_high_lake_bookings(lowered):
@@ -150,16 +270,77 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
 
 
 def _days_in_text(lowered_text: str) -> set[str]:
-    return {day for alias, day in DAY_ALIASES.items() if alias in lowered_text}
+    explicit_days = [day for alias, day in DAY_ALIASES.items() if alias in lowered_text]
+    days = set(explicit_days)
+    if len(explicit_days) >= 2 and any(marker in lowered_text for marker in (" da ", " a ", " fino a", " through ", " to ")):
+        indexes = sorted(WEEK_DAYS.index(day) for day in days)
+        if len(indexes) >= 2:
+            start, end = indexes[0], indexes[-1]
+            days.update(WEEK_DAYS[start : end + 1])
+    return days
 
 
 def _people_in_text(lowered_text: str) -> set[str]:
     return {person for alias, person in PEOPLE_ALIASES.items() if alias in lowered_text}
 
 
+def _period_in_text(lowered_text: str) -> str:
+    if any(word in lowered_text for word in ("solo mattina", "mattina", "morning")):
+        return MORNING
+    if any(word in lowered_text for word in ("solo pomeriggio", "pomeriggio", "afternoon")):
+        return AFTERNOON
+    return FULL_DAY
+
+
+def _add_absence(instruction: WeeklyInstruction, person: str, days: set[str], period: str) -> None:
+    if period == MORNING:
+        instruction.morning_absence_by_person.setdefault(person, set()).update(days)
+        return
+    if period == AFTERNOON:
+        instruction.afternoon_absence_by_person.setdefault(person, set()).update(days)
+        return
+    instruction.unavailable_by_person.setdefault(person, set()).update(days)
+
+
+def _add_exceptional_closure(
+    instruction: WeeklyInstruction, days: set[str], lowered: str, period: str
+) -> None:
+    activities = _activities_in_text(lowered)
+    for activity in activities:
+        for day in days:
+            instruction.exceptional_closures.append(ClosureRequest(day, activity, period))
+
+
+def _add_exceptional_opening(
+    instruction: WeeklyInstruction, days: set[str], lowered: str, period: str
+) -> None:
+    activities = _activities_in_text(lowered)
+    for activity in activities:
+        for day in days:
+            instruction.exceptional_openings.append(OpeningRequest(day, activity, period))
+
+
+def _activities_in_text(lowered: str) -> set[ActivityId]:
+    activities: set[ActivityId] = set()
+    if _mentions_lake(lowered):
+        activities.add(ActivityId.LAKE)
+    if _mentions_shop(lowered):
+        activities.add(ActivityId.SHOP)
+    return activities
+
+
 def _mentions_opening_lake(lowered_text: str) -> bool:
+    return _mentions_opening(lowered_text) and _mentions_lake(lowered_text)
+
+
+def _mentions_opening(lowered_text: str) -> bool:
     opening_words = ("aprire", "apertura", "apre", "open", "opening")
-    return any(word in lowered_text for word in opening_words) and _mentions_lake(lowered_text)
+    return any(word in lowered_text for word in opening_words)
+
+
+def _mentions_closing(lowered_text: str) -> bool:
+    closing_words = ("chiusura", "chiudere", "chiude", "closing", "close")
+    return any(word in lowered_text for word in closing_words)
 
 
 def _mentions_lake(lowered_text: str) -> bool:
@@ -191,6 +372,7 @@ def _mentions_external_work(lowered_text: str) -> bool:
         "esterno",
         "esterna",
         "fuori sede",
+        "fuori per",
     )
     return any(word in lowered_text for word in external_words)
 
@@ -225,7 +407,13 @@ def _mentions_unavailability(lowered_text: str) -> bool:
         "vacanza",
         "vacanze",
         "non disponibile",
+        "non è disponibile",
+        "non e disponibile",
         "indisponibile",
+        "non c'è",
+        "non c'e",
+        "non ce",
+        "non cè",
         "unavailable",
         "absent",
         "holiday",
@@ -236,8 +424,27 @@ def _mentions_unavailability(lowered_text: str) -> bool:
 
 
 def _mentions_high_lake_bookings(lowered_text: str) -> bool:
-    booking_words = ("prenotazioni", "bookings", "pieno", "molte", "many")
+    booking_words = ("prenotazioni", "bookings", "pieno", "piena", "molte", "many", "evento", "event")
     return any(word in lowered_text for word in booking_words) and _mentions_lake(lowered_text)
+
+
+def _mentions_extra_lake_coverage(lowered_text: str) -> bool:
+    extra_words = ("doppio presidio", "doppia copertura", "più copertura", "piu copertura", "extra")
+    return any(word in lowered_text for word in extra_words) and _mentions_lake(lowered_text)
+
+
+def _mentions_closure(lowered_text: str) -> bool:
+    closure_words = ("resta chiuso", "resta chiusa", "chiuso", "chiusa", "non apre", "closed")
+    return any(word in lowered_text for word in closure_words)
+
+
+def _mentions_only_morning_opening(lowered_text: str) -> bool:
+    return any(text in lowered_text for text in ("apre solo la mattina", "aperto solo la mattina", "aperta solo la mattina"))
+
+
+def _mentions_exceptional_opening(lowered_text: str) -> bool:
+    opening_words = ("apertura straordinaria", "apre straordinariamente", "aperto straordinariamente", "aperta straordinariamente")
+    return any(word in lowered_text for word in opening_words)
 
 
 def _requested_day_count(lowered_text: str) -> int | None:
@@ -256,3 +463,36 @@ def _requested_day_count(lowered_text: str) -> int | None:
         if text in lowered_text:
             return count
     return None
+
+
+def _shop_ranges_for_period(period: str) -> list[tuple[str, str]]:
+    if period == FULL_DAY:
+        return [("09:00", "12:30"), ("15:30", "19:30")]
+    return [_shop_range_for_period(period)]
+
+
+def _shop_range_for_period(period: str) -> tuple[str, str]:
+    if period == MORNING:
+        return "09:00", "12:30"
+    if period == AFTERNOON:
+        return "15:30", "19:30"
+    return "09:00", "19:30"
+
+
+def _lake_ranges_for_period(period: str) -> list[tuple[str, str]]:
+    if period == FULL_DAY:
+        return [("07:30", "14:00"), ("14:00", "18:30")]
+    return [_lake_range_for_period(period)]
+
+
+def _lake_range_for_period(period: str) -> tuple[str, str]:
+    if period == MORNING:
+        return "07:30", "14:00"
+    if period == AFTERNOON:
+        return "14:00", "18:30"
+    return "07:30", "18:30"
+
+
+def _to_minutes(value: str) -> int:
+    hours, minutes = value.split(":")
+    return int(hours) * 60 + int(minutes)

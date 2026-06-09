@@ -47,32 +47,31 @@ def _validate_lorenzo_hours(schedule: WeeklySchedule) -> None:
 
 
 def _validate_coverage(day: DaySchedule) -> None:
-    if day.day in TENUTA_DEL_GERMANO.open_days:
+    lake_ranges = day.lake_required_ranges
+    if lake_ranges is None and day.day in TENUTA_DEL_GERMANO.open_days:
+        lake_ranges = [("07:30", "18:30")]
+    for start, end in lake_ranges or []:
         _validate_activity_coverage(
             day,
             ActivityId.LAKE,
             _assignments_for_activity(day, ActivityId.LAKE),
-            "07:30",
-            "18:30",
+            start,
+            end,
             "lago",
         )
 
-    if day.day in CARPEEVOLUTION_STORE.open_days:
+    shop_ranges = day.shop_required_ranges
+    if shop_ranges is None and day.day in CARPEEVOLUTION_STORE.open_days:
+        shop_ranges = [("09:00", "12:30"), ("15:30", "19:30")]
+    for start, end in shop_ranges or []:
+        label = "negozio mattina" if start < "14:00" else "negozio pomeriggio"
         _validate_activity_coverage(
             day,
             ActivityId.SHOP,
-            day.shop_morning,
-            "09:00",
-            "12:30",
-            "negozio mattina",
-        )
-        _validate_activity_coverage(
-            day,
-            ActivityId.SHOP,
-            day.shop_afternoon,
-            "15:30",
-            "19:30",
-            "negozio pomeriggio",
+            _assignments_for_activity(day, ActivityId.SHOP),
+            start,
+            end,
+            label,
         )
 
 
