@@ -1,8 +1,8 @@
-"""Predisposizione per il calendario persistente della moglie di Gianmarco.
+"""Calendario persistente della moglie di Giammarco.
 
-La lettura immagini/OCR arriverà in un task futuro. Per ora offriamo un piccolo
-repository JSON e un punto di integrazione stabile per le regole sui codici M,
-P, I e MPI.
+La lettura immagini/OCR arriverà in un task futuro. Per ora usiamo solo codici
+calendario già salvati o interpretati. L'unica regola operativa attiva è il
+codice `M`: in quella data Giammarco non può aprire il lago alle 07:30.
 """
 
 from __future__ import annotations
@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-WifeCalendarCode = Literal["M", "P", "I", "MPI"]
+WifeCalendarCode = Literal["M", "P", "I", "F", "MPI"]
+
+_SUPPORTED_CODES = {"M", "P", "I", "F", "MPI"}
 
 
 @dataclass
@@ -28,7 +30,7 @@ class WifeCalendarRepository:
             return {}
         with self.path.open("r", encoding="utf-8") as file:
             data = json.load(file)
-        return {str(day): code for day, code in data.items() if code in {"M", "P", "I", "MPI"}}
+        return {str(day): code for day, code in data.items() if code in _SUPPORTED_CODES}
 
     def save(self, codes_by_date: dict[str, WifeCalendarCode]) -> None:
         """Salva codici già normalizzati da un futuro modulo OCR/import."""
@@ -38,14 +40,11 @@ class WifeCalendarRepository:
             json.dump(codes_by_date, file, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def can_gianmarco_open_lake_at_0730(code: WifeCalendarCode | None) -> bool | None:
-    """Valuta la futura regola di apertura lago delle 07:30 per Gianmarco.
+def can_giammarco_open_lake_at_0730(code: str | None) -> bool:
+    """Restituisce `False` solo se il codice calendario è `M`.
 
-    Restituisce `None` per casi non ancora implementati o dati mancanti.
+    Tutti gli altri codici, compresi `P`, `I`, `F`, colori già interpretati o
+    dati mancanti, non sono vincoli di pianificazione in questa fase.
     """
 
-    if code == "M":
-        return False
-    if code in {"P", "I"}:
-        return True
-    return None
+    return code != "M"

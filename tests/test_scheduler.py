@@ -2,6 +2,9 @@ from orari_agent.generator import generate_weekly_schedule
 from orari_agent.weekly_input import parse_weekly_instruction
 
 
+GIAMMARCO = "Giammarco Mengozzi"
+
+
 def _people_for(day, activity):
     return [assignment.person for assignment in day.assignments() if assignment.activity == activity]
 
@@ -28,34 +31,50 @@ def test_lorenzo_forced_tuesday_keeps_forty_hours_and_five_days():
 def test_parser_supports_example_sentence_in_english():
     instruction = parse_weekly_instruction(
         "Next week Lorenzo must open the lake on Tuesday. "
-        "On Thursday Gianmarco must stay in the shop for invoices. "
+        "On Thursday Giammarco must stay in the shop for invoices. "
         "On Sunday the lake has many bookings."
     )
 
     assert instruction.lorenzo_must_open_lake_days == {"Martedì"}
-    assert instruction.gianmarco_shop_days == {"Giovedì"}
+    assert instruction.giammarco_shop_days == {"Giovedì"}
     assert instruction.high_lake_booking_days == {"Domenica"}
 
 
-def test_parser_supports_absence_and_gianmarco_lake_instruction():
+def test_giammarco_requested_shop_day_count_assigns_two_shop_days():
+    instruction = parse_weekly_instruction("Giammarco deve stare due giorni in negozio questa settimana")
+
+    assert instruction.giammarco_requested_shop_day_count == 2
+
+    schedule = generate_weekly_schedule("Giammarco deve stare due giorni in negozio questa settimana")
+    giammarco_shop_days = {
+        day.day
+        for day in schedule.days
+        if any(assignment.person == GIAMMARCO and assignment.activity == "shop" for assignment in day.assignments())
+    }
+
+    assert giammarco_shop_days == {"Mercoledì", "Giovedì"}
+    assert all(day.warnings == [] for day in schedule.days)
+
+
+def test_parser_supports_absence_and_giammarco_lake_instruction():
     instruction = parse_weekly_instruction(
         "Domenica Lorenzo è assente. "
         "Sabato Angelo è in ferie. "
-        "Venerdì Gianmarco deve stare al lago."
+        "Venerdì Giammarco deve stare al lago."
     )
 
     assert instruction.lorenzo_absent_days == {"Domenica"}
     assert instruction.angelo_absent_days == {"Sabato"}
-    assert instruction.gianmarco_lake_days == {"Venerdì"}
+    assert instruction.giammarco_lake_days == {"Venerdì"}
 
 
-def test_gianmarco_shop_instruction_rebalances_lake_closing_with_angelo():
-    schedule = generate_weekly_schedule("Giovedì Gianmarco deve stare in negozio per fatture")
+def test_giammarco_shop_instruction_rebalances_lake_closing_with_angelo():
+    schedule = generate_weekly_schedule("Giovedì Giammarco deve stare in negozio per fatture")
     thursday = next(day for day in schedule.days if day.day == "Giovedì")
 
     assert thursday.warnings == []
     assert any(
-        assignment.person == "Gianmarco Mengozzi"
+        assignment.person == GIAMMARCO
         and assignment.activity == "shop"
         and assignment.start == "15:30"
         and assignment.end == "19:30"
@@ -82,7 +101,7 @@ def test_lorenzo_absent_on_sunday_moves_his_lake_day_to_tuesday():
     ]
     assert lorenzo_days == ["Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"]
     sunday = next(day for day in schedule.days if day.day == "Domenica")
-    assert _people_for(sunday, "lake") == ["Gianmarco Mengozzi"]
+    assert _people_for(sunday, "lake") == [GIAMMARCO]
 
 
 def test_angelo_absent_on_saturday_reports_infeasible_lake_closing_gap():
@@ -91,7 +110,7 @@ def test_angelo_absent_on_saturday_reports_infeasible_lake_closing_gap():
 
     assert any("16:30" in warning and "18:30" in warning for warning in saturday.warnings)
     assert any(
-        assignment.person == "Gianmarco Mengozzi"
+        assignment.person == GIAMMARCO
         and assignment.activity == "shop"
         and assignment.start == "15:30"
         and assignment.end == "19:30"
@@ -99,10 +118,72 @@ def test_angelo_absent_on_saturday_reports_infeasible_lake_closing_gap():
     )
 
 
-def test_gianmarco_lake_instruction_keeps_shop_covered_by_angelo():
-    schedule = generate_weekly_schedule("Venerdì Gianmarco deve stare al lago")
+def test_giammarco_lake_instruction_keeps_shop_covered_by_angelo():
+    schedule = generate_weekly_schedule("Venerdì Giammarco deve stare al lago")
     friday = next(day for day in schedule.days if day.day == "Venerdì")
 
     assert friday.warnings == []
-    assert "Gianmarco Mengozzi" in _people_for(friday, "lake")
+    assert GIAMMARCO in _people_for(friday, "lake")
     assert "Angelo Antonelli" in _people_for(friday, "shop")
+
+
+def test_giammarco_external_work_is_not_fixed_coverage():
+    schedule = generate_weekly_schedule("Giovedì Giammarco è dal commercialista")
+    thursday = next(day for day in schedule.days if day.day == "Giovedì")
+
+    assert any(assignment.person == GIAMMARCO and assignment.activity == "company_work" for assignment in thursday.company_work)
+    assert not any(assignment.person == GIAMMARCO and assignment.activity in {"lake", "shop"} for assignment in thursday.assignments())
+    assert any("commercialista" in note and "non conta come copertura fissa" in note for note in thursday.notes)
+
+
+def test_giammarco_morning_external_work_allows_later_coverage():
+    schedule = generate_weekly_schedule("Domenica Lorenzo è assente. Domenica Giammarco mattina è in banca")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "14:00"
+        and assignment.end == "18:30"
+        for assignment in sunday.assignments()
+    )
+    assert not any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "07:30"
+        for assignment in sunday.assignments()
+    )
+
+
+def test_wife_calendar_m_blocks_only_giammarco_lake_opening():
+    schedule = generate_weekly_schedule(
+        "Domenica Lorenzo è assente",
+        week_start_date="2026-06-08",
+        wife_calendar_codes={"2026-06-14": "M"},
+    )
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert any("codice M" in warning and "07:30" in warning for warning in sunday.warnings)
+    assert not any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "07:30"
+        for assignment in sunday.assignments()
+    )
+
+
+def test_wife_calendar_other_codes_are_ignored():
+    schedule = generate_weekly_schedule(
+        "Domenica Lorenzo è assente",
+        week_start_date="2026-06-08",
+        wife_calendar_codes={"2026-06-14": "P"},
+    )
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert sunday.warnings == []
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "07:30"
+        for assignment in sunday.assignments()
+    )

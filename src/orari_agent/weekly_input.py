@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .people import ANGELO, GIANMARCO, LORENZO
+from .people import ANGELO, GIAMMARCO, LORENZO
 
 
 DAY_ALIASES = {
@@ -37,11 +37,21 @@ DAY_ALIASES = {
 PEOPLE_ALIASES = {
     "angelo": ANGELO.full_name,
     "antonelli": ANGELO.full_name,
-    "gianmarco": GIANMARCO.full_name,
-    "mengozzi": GIANMARCO.full_name,
+    "giammarco": GIAMMARCO.full_name,
+    "mengozzi": GIAMMARCO.full_name,
     "lorenzo": LORENZO.full_name,
     "sansavini": LORENZO.full_name,
 }
+
+
+@dataclass(frozen=True)
+class ExternalWorkRequest:
+    """Lavoro aziendale di Giammarco non valido come copertura fissa."""
+
+    day: str
+    start: str
+    end: str
+    label: str
 
 
 @dataclass
@@ -50,8 +60,10 @@ class WeeklyInstruction:
 
     raw_text: str = ""
     lorenzo_must_open_lake_days: set[str] = field(default_factory=set)
-    gianmarco_shop_days: set[str] = field(default_factory=set)
-    gianmarco_lake_days: set[str] = field(default_factory=set)
+    giammarco_shop_days: set[str] = field(default_factory=set)
+    giammarco_lake_days: set[str] = field(default_factory=set)
+    giammarco_requested_shop_day_count: int | None = None
+    giammarco_external_work: list[ExternalWorkRequest] = field(default_factory=list)
     high_lake_booking_days: set[str] = field(default_factory=set)
     unavailable_by_person: dict[str, set[str]] = field(default_factory=dict)
     unknown_notes: list[str] = field(default_factory=list)
@@ -61,6 +73,10 @@ class WeeklyInstruction:
 
         return self.unavailable_by_person.get(person, set())
 
+    def external_work_for(self, day: str) -> list[ExternalWorkRequest]:
+        """Restituisce gli impegni aziendali esterni di Giammarco per il giorno."""
+
+        return [request for request in self.giammarco_external_work if request.day == day]
 
     # Compatibilità con test e chiamanti esistenti che accedevano a campi dedicati.
     @property
@@ -72,8 +88,9 @@ class WeeklyInstruction:
         return self.unavailable_days_for(ANGELO.full_name)
 
     @property
-    def gianmarco_absent_days(self) -> set[str]:
-        return self.unavailable_days_for(GIANMARCO.full_name)
+    def giammarco_absent_days(self) -> set[str]:
+        return self.unavailable_days_for(GIAMMARCO.full_name)
+
 
 
 def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
@@ -88,6 +105,13 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
         lowered = sentence.lower()
         days = _days_in_text(lowered)
         people = _people_in_text(lowered)
+
+        if GIAMMARCO.full_name in people and _mentions_shop(lowered) and not days:
+            requested_count = _requested_day_count(lowered)
+            if requested_count is not None:
+                instruction.giammarco_requested_shop_day_count = requested_count
+                continue
+
         if not days:
             instruction.unknown_notes.append(sentence)
             continue
@@ -101,12 +125,19 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
             instruction.lorenzo_must_open_lake_days.update(days)
             continue
 
-        if GIANMARCO.full_name in people and _mentions_shop(lowered):
-            instruction.gianmarco_shop_days.update(days)
+        if GIAMMARCO.full_name in people and _mentions_external_work(lowered):
+            for day in days:
+                instruction.giammarco_external_work.append(
+                    ExternalWorkRequest(day, *_external_work_range_and_label(lowered))
+                )
             continue
 
-        if GIANMARCO.full_name in people and _mentions_lake(lowered):
-            instruction.gianmarco_lake_days.update(days)
+        if GIAMMARCO.full_name in people and _mentions_shop(lowered):
+            instruction.giammarco_shop_days.update(days)
+            continue
+
+        if GIAMMARCO.full_name in people and _mentions_lake(lowered):
+            instruction.giammarco_lake_days.update(days)
             continue
 
         if _mentions_high_lake_bookings(lowered):
@@ -141,6 +172,51 @@ def _mentions_shop(lowered_text: str) -> bool:
     return any(word in lowered_text for word in shop_words)
 
 
+def _mentions_external_work(lowered_text: str) -> bool:
+    external_words = (
+        "banca",
+        "bank",
+        "commercialista",
+        "accountant",
+        "fornitore",
+        "fornitori",
+        "supplier",
+        "suppliers",
+        "amministrazione",
+        "admin",
+        "commissione",
+        "commissioni",
+        "errand",
+        "errands",
+        "esterno",
+        "esterna",
+        "fuori sede",
+    )
+    return any(word in lowered_text for word in external_words)
+
+
+def _external_work_range_and_label(lowered_text: str) -> tuple[str, str, str]:
+    if any(word in lowered_text for word in ("mattina", "morning")):
+        return "07:30", "14:00", _external_work_label(lowered_text)
+    if any(word in lowered_text for word in ("pomeriggio", "afternoon")):
+        return "14:00", "19:30", _external_work_label(lowered_text)
+    return "07:30", "19:30", _external_work_label(lowered_text)
+
+
+def _external_work_label(lowered_text: str) -> str:
+    if "banca" in lowered_text or "bank" in lowered_text:
+        return "banca"
+    if "commercialista" in lowered_text or "accountant" in lowered_text:
+        return "commercialista"
+    if any(word in lowered_text for word in ("fornitore", "fornitori", "supplier", "suppliers")):
+        return "fornitori"
+    if "admin" in lowered_text or "amministrazione" in lowered_text:
+        return "amministrazione"
+    if any(word in lowered_text for word in ("commissione", "commissioni", "errand", "errands")):
+        return "commissioni"
+    return "lavoro aziendale esterno"
+
+
 def _mentions_unavailability(lowered_text: str) -> bool:
     unavailable_words = (
         "assente",
@@ -162,3 +238,21 @@ def _mentions_unavailability(lowered_text: str) -> bool:
 def _mentions_high_lake_bookings(lowered_text: str) -> bool:
     booking_words = ("prenotazioni", "bookings", "pieno", "molte", "many")
     return any(word in lowered_text for word in booking_words) and _mentions_lake(lowered_text)
+
+
+def _requested_day_count(lowered_text: str) -> int | None:
+    count_words = {
+        "un giorno": 1,
+        "1 giorno": 1,
+        "one day": 1,
+        "due giorni": 2,
+        "2 giorni": 2,
+        "two days": 2,
+        "tre giorni": 3,
+        "3 giorni": 3,
+        "three days": 3,
+    }
+    for text, count in count_words.items():
+        if text in lowered_text:
+            return count
+    return None

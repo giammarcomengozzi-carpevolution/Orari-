@@ -28,10 +28,11 @@ ANGELO = Person(
     default_role="copertura principale negozio",
 )
 
-GIANMARCO = Person(
-    full_name="Gianmarco Mengozzi",
-    default_role="jolly flessibile per negozio o lago",
+GIAMMARCO = Person(
+    full_name="Giammarco Mengozzi",
+    default_role="general manager / CEO: lavoro aziendale continuo, copertura fissa solo quando serve",
 )
+
 
 LORENZO = Person(
     full_name="Lorenzo Sansavini",
@@ -48,5 +49,5 @@ LORENZO = Person(
 
 PEOPLE = {
     person.full_name: person
-    for person in (ANGELO, GIANMARCO, LORENZO)
+    for person in (ANGELO, GIAMMARCO, LORENZO)
 }

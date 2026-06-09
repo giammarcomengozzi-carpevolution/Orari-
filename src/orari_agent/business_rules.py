@@ -16,6 +16,7 @@ class ActivityId(StrEnum):
 
     LAKE = "lake"
     SHOP = "shop"
+    COMPANY_WORK = "company_work"
 
 
 @dataclass(frozen=True)

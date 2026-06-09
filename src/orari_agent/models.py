@@ -33,6 +33,7 @@ class DaySchedule:
     lake_afternoon: list[Assignment] = field(default_factory=list)
     shop_morning: list[Assignment] = field(default_factory=list)
     shop_afternoon: list[Assignment] = field(default_factory=list)
+    company_work: list[Assignment] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -42,6 +43,7 @@ class DaySchedule:
             *self.lake_afternoon,
             *self.shop_morning,
             *self.shop_afternoon,
+            *self.company_work,
         ]
 
 
