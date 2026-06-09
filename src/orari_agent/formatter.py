@@ -43,7 +43,7 @@ def format_schedule_italian(schedule: WeeklySchedule) -> str:
             "## Legenda rapida",
             "- La pausa 14:00-15:00 di Lorenzo non viene conteggiata come lavoro.",
             "- Angelo copre di default il negozio negli orari di apertura.",
-            "- Gianmarco viene usato come jolly per coperture lago/negozio e chiusure del lago.",
+            "- Giammarco è general manager / CEO: lavora sempre per l’azienda, ma viene contato come copertura fissa solo quando è assegnato a lago o negozio.",
         ]
     )
     return "\n".join(result)

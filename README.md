@@ -11,7 +11,7 @@ L'agente conserva le regole fisse, interpreta semplici istruzioni settimanali in
 
 1. **Angelo Antonelli** copre il negozio di default.
 2. **Lorenzo Sansavini** copre il lago di default, con 5 giorni e 40 ore settimanali.
-3. **Gianmarco Mengozzi** viene usato come jolly flessibile solo quando serve copertura, quando un'istruzione settimanale lo richiede o quando un'altra persona non è disponibile.
+3. **Giammarco Mengozzi** è general manager / CEO dell’operazione: lavora sempre per l’azienda, ma viene contato come copertura fissa solo quando è assegnato a lago o negozio. Se serve copertura e non ci sono istruzioni esplicite, la priorità è il lago.
 
 Il motore prova a mantenere sempre almeno una persona al lago e una persona in negozio durante gli orari di apertura. Se una combinazione di assenze rende impossibile coprire tutto con le sole tre persone disponibili e con i vincoli di Lorenzo, l'orario viene comunque generato e il validatore evidenzia l'intervallo scoperto.
 
@@ -19,11 +19,14 @@ Il motore prova a mantenere sempre almeno una persona al lago e una persona in n
 
 Il parser leggero riconosce frasi italiane o inglesi con giorno, persona e intenzione. Esempi:
 
-- `Giovedì Gianmarco deve stare in negozio.`
+- `Giovedì Giammarco deve stare in negozio.`
+- `Giammarco deve stare due giorni in negozio questa settimana.`
 - `Martedì Lorenzo deve aprire il lago.`
 - `Domenica Lorenzo è assente.`
 - `Sabato Angelo è in ferie.`
-- `Venerdì Gianmarco deve stare al lago.`
+- `Venerdì Giammarco deve stare al lago.`
+- `Giovedì Giammarco è dal commercialista.`
+- `Venerdì mattina Giammarco è in banca.`
 - `Domenica il lago ha molte prenotazioni.`
 
 Le istruzioni possono essere passate in un unico testo, separate da punto o a capo.
@@ -31,7 +34,7 @@ Le istruzioni possono essere passate in un unico testo, separate da punto o a ca
 ## Avvio rapido
 
 ```bash
-PYTHONPATH=src python -m orari_agent "Giovedì Gianmarco deve stare in negozio. Martedì Lorenzo deve aprire il lago. Domenica Lorenzo è assente. Sabato Angelo è in ferie. Venerdì Gianmarco deve stare al lago."
+PYTHONPATH=src python -m orari_agent "Giovedì Giammarco deve stare in negozio. Martedì Lorenzo deve aprire il lago. Domenica Lorenzo è assente. Sabato Angelo è in ferie. Venerdì Giammarco deve stare al lago."
 ```
 
 In alternativa, dopo installazione locale:
@@ -43,9 +46,10 @@ orari-agent "Domenica il lago ha molte prenotazioni"
 
 ## Esempi di comportamento
 
-- Se **Gianmarco è richiesto in negozio** in un giorno in cui Lorenzo è al lago, il negozio viene coperto da Gianmarco e Angelo può essere spostato sulla chiusura del lago 16:30-18:30.
-- Se **Lorenzo è assente domenica**, il motore sposta il suo quinto giorno sul martedì per conservare 5 giorni e 40 ore, mentre Gianmarco copre il lago la domenica.
-- Se **Angelo è in ferie sabato**, Gianmarco copre il negozio. La chiusura lago 16:30-18:30 resta scoperta perché, con Lorenzo vincolato a 8 ore e Angelo assente, non esiste una copertura completa possibile con le sole tre persone.
+- Se **Giammarco è richiesto in negozio** in un giorno in cui Lorenzo è al lago, il negozio viene coperto da Giammarco e Angelo può essere spostato sulla chiusura del lago 16:30-18:30.
+- Se **Lorenzo è assente domenica**, il motore sposta il suo quinto giorno sul martedì per conservare 5 giorni e 40 ore, mentre Giammarco copre il lago la domenica.
+- Se **Angelo è in ferie sabato**, Giammarco copre il negozio. La chiusura lago 16:30-18:30 resta scoperta perché, con Lorenzo vincolato a 8 ore e Angelo assente, non esiste una copertura completa possibile con le sole tre persone.
+- Se **Giammarco è dal commercialista, in banca, dai fornitori o in amministrazione**, l’impegno viene registrato come lavoro aziendale esterno e non vale come copertura fissa di lago o negozio.
 
 ## Struttura
 
@@ -54,7 +58,7 @@ orari-agent "Domenica il lago ha molte prenotazioni"
 - `src/orari_agent/generator.py` — generazione e riequilibrio dell'orario settimanale.
 - `src/orari_agent/validator.py` — controlli su ore, giorni, coperture e conflitti.
 - `src/orari_agent/formatter.py` — output italiano leggibile.
-- `src/orari_agent/wife_calendar.py` — predisposizione per calendario persistente della moglie di Gianmarco.
+- `src/orari_agent/wife_calendar.py` — predisposizione per calendario persistente della moglie di Giammarco.
 - `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale.
 
 ## Limiti intenzionali
@@ -62,8 +66,8 @@ orari-agent "Domenica il lago ha molte prenotazioni"
 - La generazione PDF non è ancora implementata.
 - L'OCR e la lettura immagini non sono ancora implementati.
 - Il parser non è un NLP completo: riconosce pattern ricorrenti e conserva come note non interpretate le frasi non supportate.
-- Non vengono introdotte risorse esterne oltre ad Angelo, Gianmarco e Lorenzo.
+- Non vengono introdotte risorse esterne oltre ad Angelo, Giammarco e Lorenzo.
 
-## Nota sul calendario della moglie di Gianmarco
+## Nota sul calendario della moglie di Giammarco
 
-L'OCR e la lettura immagini non sono implementati. È però presente un archivio JSON persistente e un'interfaccia dedicata, così una prossima attività potrà aggiungere lettura immagine, codici `M`, `P`, `I`, `MPI` e regole operative senza riscrivere il generatore.
+L'OCR e la lettura immagini non sono implementati. È però presente un archivio JSON persistente e un'interfaccia dedicata. In questa fase solo il codice `M` è un vincolo: Giammarco non può aprire il lago alle 07:30 nella data interessata. I codici `P`, `I`, `F`, colori o altre marcature non vincolano l’orario.
