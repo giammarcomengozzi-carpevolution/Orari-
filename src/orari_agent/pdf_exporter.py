@@ -73,7 +73,9 @@ def default_pdf_filename(week_start_date: str | date | None = None) -> str:
     return f"{DEFAULT_FILENAME_PREFIX}_{date_part}.pdf"
 
 
-def _resolve_week_start(schedule: WeeklySchedule, week_start_date: str | date | None) -> str | None:
+def _resolve_week_start(
+    schedule: WeeklySchedule, week_start_date: str | date | None
+) -> str | None:
     if isinstance(week_start_date, date):
         return week_start_date.isoformat()
     if week_start_date:
@@ -81,7 +83,9 @@ def _resolve_week_start(schedule: WeeklySchedule, week_start_date: str | date | 
     return schedule.week_start_date
 
 
-def _resolve_output_path(output_path: str | Path | None, week_start_date: str | None) -> Path:
+def _resolve_output_path(
+    output_path: str | Path | None, week_start_date: str | None
+) -> Path:
     filename = default_pdf_filename(week_start_date)
     if output_path is None:
         return Path.cwd() / filename
@@ -100,7 +104,9 @@ def _build_page_content(schedule: WeeklySchedule, week_start_date: str | None) -
     if subtitle:
         _add_text(commands, MARGIN, PAGE_HEIGHT - 56, subtitle, 10)
 
-    warnings_count = len(schedule.global_warnings) + sum(len(day.warnings) for day in schedule.days)
+    warnings_count = len(schedule.global_warnings) + sum(
+        len(day.warnings) for day in schedule.days
+    )
     status = (
         "Avvisi presenti: controllare le note evidenziate in tabella."
         if warnings_count
@@ -112,7 +118,9 @@ def _build_page_content(schedule: WeeklySchedule, week_start_date: str | None) -
     y = _draw_table(commands, schedule.days, y)
 
     if schedule.global_warnings:
-        _draw_warning_box(commands, schedule.global_warnings, y - 12)
+        _draw_warning_box(commands, "Avvisi generali", schedule.global_warnings, y - 12)
+    elif schedule.global_notes:
+        _draw_warning_box(commands, "Note settimanali", schedule.global_notes, y - 12)
 
     footer = "PDF pronto per condivisione manuale su WhatsApp - invio automatico non incluso."
     _add_text(commands, MARGIN, 20, footer, 7)
@@ -136,7 +144,16 @@ def _draw_table(commands: list[str], days: list[DaySchedule], top_y: float) -> f
         x_positions.append(x_positions[-1] + width)
 
     header_height = 22.0
-    _draw_filled_rect(commands, MARGIN, top_y - header_height, TABLE_WIDTH, header_height, 0.14, 0.25, 0.39)
+    _draw_filled_rect(
+        commands,
+        MARGIN,
+        top_y - header_height,
+        TABLE_WIDTH,
+        header_height,
+        0.14,
+        0.25,
+        0.39,
+    )
     for x, (label, width) in zip(x_positions, COLUMN_SPECS, strict=True):
         _add_text(commands, x + 4, top_y - 14, label, 8.2, bold=True, color=(1, 1, 1))
         _draw_rect(commands, x, top_y - header_height, width, header_height)
@@ -144,21 +161,56 @@ def _draw_table(commands: list[str], days: list[DaySchedule], top_y: float) -> f
     y = top_y - header_height
     for index, day in enumerate(days):
         row = _row_for_day(day)
-        wrapped_cells = [_wrap_cell(cell.text, width, cell.font_size) for cell, (_, width) in zip(row, COLUMN_SPECS, strict=True)]
+        wrapped_cells = [
+            _wrap_cell(cell.text, width, cell.font_size)
+            for cell, (_, width) in zip(row, COLUMN_SPECS, strict=True)
+        ]
         line_count = max(len(lines) for lines in wrapped_cells)
         row_height = max(48.0, min(62.0, 10.5 + line_count * 9.2))
 
         if index % 2 == 1:
-            _draw_filled_rect(commands, MARGIN, y - row_height, TABLE_WIDTH, row_height, 0.96, 0.98, 1.0)
+            _draw_filled_rect(
+                commands,
+                MARGIN,
+                y - row_height,
+                TABLE_WIDTH,
+                row_height,
+                0.96,
+                0.98,
+                1.0,
+            )
         if day.warnings:
-            _draw_filled_rect(commands, MARGIN, y - row_height, TABLE_WIDTH, row_height, 1.0, 0.96, 0.86)
+            _draw_filled_rect(
+                commands,
+                MARGIN,
+                y - row_height,
+                TABLE_WIDTH,
+                row_height,
+                1.0,
+                0.96,
+                0.86,
+            )
 
-        for x, (cell, lines, (_, width)) in zip(x_positions, zip(row, wrapped_cells, COLUMN_SPECS, strict=True), strict=True):
+        for x, (cell, lines, (_, width)) in zip(
+            x_positions, zip(row, wrapped_cells, COLUMN_SPECS, strict=True), strict=True
+        ):
             _draw_rect(commands, x, y - row_height, width, row_height, stroke_gray=0.72)
             text_y = y - 12.5
-            color = (0.55, 0.15, 0.0) if day.warnings and cell.text.startswith("ATTENZIONE") else (0, 0, 0)
+            color = (
+                (0.55, 0.15, 0.0)
+                if day.warnings and cell.text.startswith("ATTENZIONE")
+                else (0, 0, 0)
+            )
             for line in lines[:6]:
-                _add_text(commands, x + 4, text_y, line, cell.font_size, bold=cell.font_size >= 8.5, color=color)
+                _add_text(
+                    commands,
+                    x + 4,
+                    text_y,
+                    line,
+                    cell.font_size,
+                    bold=cell.font_size >= 8.5,
+                    color=color,
+                )
                 text_y -= 9.2
 
         y -= row_height
@@ -189,17 +241,23 @@ def _wrap_cell(text: str, width: float, font_size: float) -> list[str]:
     chars_per_line = max(8, int(width / (font_size * 0.46)))
     lines: list[str] = []
     for chunk in normalized.split("; "):
-        wrapped = textwrap.wrap(chunk, width=chars_per_line, break_long_words=False) or [""]
+        wrapped = textwrap.wrap(
+            chunk, width=chars_per_line, break_long_words=False
+        ) or [""]
         lines.extend(wrapped)
     if len(lines) > 6:
         return [*lines[:5], "..."]
     return lines
 
 
-def _draw_warning_box(commands: list[str], warnings: Iterable[str], top_y: float) -> None:
-    lines = ["Avvisi generali"]
+def _draw_warning_box(
+    commands: list[str], title: str, warnings: Iterable[str], top_y: float
+) -> None:
+    lines = [title]
     for warning in warnings:
-        lines.extend(textwrap.wrap(_normalize_text(warning), width=128, break_long_words=False))
+        lines.extend(
+            textwrap.wrap(_normalize_text(warning), width=128, break_long_words=False)
+        )
     height = min(68.0, 12.0 + len(lines) * 8.5)
     bottom_y = max(34.0, top_y - height)
     height = top_y - bottom_y
@@ -207,7 +265,15 @@ def _draw_warning_box(commands: list[str], warnings: Iterable[str], top_y: float
     _draw_rect(commands, MARGIN, bottom_y, TABLE_WIDTH, height, stroke_gray=0.55)
     text_y = top_y - 11
     for index, line in enumerate(lines[:7]):
-        _add_text(commands, MARGIN + 6, text_y, line, 7.4, bold=index == 0, color=(0.45, 0.12, 0.0))
+        _add_text(
+            commands,
+            MARGIN + 6,
+            text_y,
+            line,
+            7.4,
+            bold=index == 0,
+            color=(0.45, 0.12, 0.0),
+        )
         text_y -= 8.5
 
 
@@ -223,17 +289,38 @@ def _add_text(
 ) -> None:
     font = "F2" if bold else "F1"
     r, g, b = color
-    commands.append(f"BT /{font} {size:.2f} Tf {r:.3f} {g:.3f} {b:.3f} rg {x:.2f} {y:.2f} Td ({_pdf_escape(_normalize_text(text))}) Tj ET")
+    commands.append(
+        f"BT /{font} {size:.2f} Tf {r:.3f} {g:.3f} {b:.3f} rg {x:.2f} {y:.2f} Td ({_pdf_escape(_normalize_text(text))}) Tj ET"
+    )
 
 
-def _draw_rect(commands: list[str], x: float, y: float, width: float, height: float, *, stroke_gray: float = 0.45) -> None:
-    commands.append(f"{stroke_gray:.3f} G {x:.2f} {y:.2f} {width:.2f} {height:.2f} re S")
+def _draw_rect(
+    commands: list[str],
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    *,
+    stroke_gray: float = 0.45,
+) -> None:
+    commands.append(
+        f"{stroke_gray:.3f} G {x:.2f} {y:.2f} {width:.2f} {height:.2f} re S"
+    )
 
 
 def _draw_filled_rect(
-    commands: list[str], x: float, y: float, width: float, height: float, r: float, g: float, b: float
+    commands: list[str],
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    r: float,
+    g: float,
+    b: float,
 ) -> None:
-    commands.append(f"{r:.3f} {g:.3f} {b:.3f} rg {x:.2f} {y:.2f} {width:.2f} {height:.2f} re f")
+    commands.append(
+        f"{r:.3f} {g:.3f} {b:.3f} rg {x:.2f} {y:.2f} {width:.2f} {height:.2f} re f"
+    )
 
 
 def _normalize_text(text: str) -> str:
@@ -267,7 +354,11 @@ def _write_pdf(path: Path, content_stream: bytes) -> None:
         ),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
-        b"<< /Length " + str(len(content_stream)).encode("ascii") + b" >>\nstream\n" + content_stream + b"\nendstream",
+        b"<< /Length "
+        + str(len(content_stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + content_stream
+        + b"\nendstream",
     ]
 
     output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
@@ -284,6 +375,8 @@ def _write_pdf(path: Path, content_stream: bytes) -> None:
     for offset in offsets[1:]:
         output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
     output.extend(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode(
+            "ascii"
+        )
     )
     path.write_bytes(bytes(output))

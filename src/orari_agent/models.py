@@ -54,5 +54,6 @@ class WeeklySchedule:
     """Risultato della generazione settimanale."""
 
     days: list[DaySchedule]
+    global_notes: list[str] = field(default_factory=list)
     global_warnings: list[str] = field(default_factory=list)
     week_start_date: str | None = None

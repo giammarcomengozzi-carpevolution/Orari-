@@ -25,8 +25,15 @@ def format_schedule_italian(schedule: WeeklySchedule) -> str:
         "",
         table,
         "",
-        "## Controlli automatici",
+        "## Note settimanali",
     ]
+
+    if schedule.global_notes:
+        result.extend(f"- {note}" for note in schedule.global_notes)
+    else:
+        result.append("- Nessuna nota settimanale aggiuntiva.")
+
+    result.extend(["", "## Controlli automatici"])
 
     all_warnings = [*schedule.global_warnings]
     for day in schedule.days:
