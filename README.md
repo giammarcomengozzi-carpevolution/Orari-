@@ -45,6 +45,54 @@ orari-agent "Domenica il lago ha molte prenotazioni"
 ```
 
 
+## Pianificazione settimanale con file YAML/JSON
+
+Per evitare di riscrivere ogni settimana un lungo prompt libero, puoi preparare un file strutturato, copiarlo dalla traccia `examples/weekly_plan.yaml`, compilarlo e passarlo alla CLI con `--planning-file`.
+
+Esempio:
+
+```bash
+PYTHONPATH=src python -m orari_agent --planning-file examples/weekly_plan.yaml --pdf
+```
+
+Il file può essere YAML o JSON. Se contiene `week_start`, quella data viene usata automaticamente per calendario moglie di Giammarco e nome PDF; `--week-start` può comunque sovrascriverla da riga di comando.
+
+Sezioni supportate:
+
+- `absences`: assenze di Angelo, Lorenzo o Giammarco con `day`, `period` (`full_day`, `morning`, `afternoon`) e `reason` opzionale.
+- `giammarco.preferred_shop_days`: giorni in cui Giammarco è preferito in negozio.
+- `giammarco.company_work`: impegni aziendali esterni che non valgono come copertura fissa.
+- `lake.events`, `lake.extra_coverage`, `lake.exceptional_openings`, `lake.exceptional_closures`.
+- `shop.special_needs`, `shop.exceptional_openings`, `shop.exceptional_closures`.
+- `manual_coverage` o `lake.manual_coverage` / `shop.manual_coverage`: coperture forzate con `person`, `day`, `period`, `activity` quando serve nella sezione globale, e `reason`.
+- `notes`: note settimanali stampate nell'output e nel PDF.
+
+Esempio minimo:
+
+```yaml
+week_start: 2026-06-15
+
+absences:
+  Lorenzo Sansavini:
+    - day: venerdì
+      period: full_day
+      reason: ferie
+
+giammarco:
+  preferred_shop_days:
+    - mercoledì
+
+lake:
+  extra_coverage:
+    - day: domenica
+      period: full_day
+      reason: lago pieno di prenotazioni
+
+notes:
+  - "PDF pronto per WhatsApp."
+```
+
+
 ## Esportazione PDF per WhatsApp
 
 È possibile generare un PDF settimanale pronto per la condivisione manuale su WhatsApp con Angelo, Lorenzo e Giammarco. Il file usa formato **A4 orizzontale**, etichette italiane e una tabella leggibile da smartphone con colonne per lago, negozio e note operative.
@@ -85,7 +133,7 @@ La data nel nome file deriva da `--week-start`, quando presente; altrimenti vien
 - `src/orari_agent/formatter.py` — output italiano leggibile.
 - `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale separata dal motore di scheduling.
 - `src/orari_agent/wife_calendar.py` — predisposizione per calendario persistente della moglie di Giammarco.
-- `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale.
+- `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale e dei file YAML/JSON settimanali.
 
 ## Limiti intenzionali
 

@@ -1,0 +1,55 @@
+week_start: 2026-06-15
+
+absences:
+  Lorenzo Sansavini:
+    - day: venerdì
+      period: full_day
+      reason: ferie
+  Angelo Antonelli:
+    - day: sabato
+      period: afternoon
+      reason: assente
+
+giammarco:
+  preferred_shop_days:
+    - mercoledì
+    - giovedì
+  company_work:
+    - day: martedì
+      period: morning
+      reason: commercialista
+    - day: venerdì
+      period: afternoon
+      reason: banca
+
+lake:
+  events:
+    - day: sabato
+      period: afternoon
+      description: evento al lago
+  extra_coverage:
+    - day: domenica
+      period: full_day
+      reason: lago pieno di prenotazioni
+  exceptional_openings:
+    - day: lunedì
+      period: full_day
+      reason: apertura straordinaria
+  exceptional_closures:
+    - day: mercoledì
+      period: afternoon
+      reason: manutenzione
+
+shop:
+  special_needs:
+    - day: venerdì
+      period: morning
+      reason: arrivo merce
+  exceptional_closures:
+    - day: giovedì
+      period: afternoon
+      reason: inventario
+
+notes:
+  - "Controllare che Lorenzo resti a 40 ore."
+  - "PDF pronto per WhatsApp."
