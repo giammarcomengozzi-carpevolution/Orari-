@@ -187,3 +187,58 @@ def test_wife_calendar_other_codes_are_ignored():
         and assignment.start == "07:30"
         for assignment in sunday.assignments()
     )
+
+
+def test_parser_supports_date_ranges_and_half_day_absences():
+    instruction = parse_weekly_instruction(
+        "Lorenzo non c'è da giovedì a domenica. Angelo è assente sabato pomeriggio."
+    )
+
+    assert instruction.lorenzo_absent_days == {"Giovedì", "Venerdì", "Sabato", "Domenica"}
+    assert instruction.afternoon_absence_days_for("Angelo Antonelli") == {"Sabato"}
+
+
+def test_lorenzo_morning_absence_reassigns_coverage_and_warns_about_hours():
+    schedule = generate_weekly_schedule("Lorenzo non è disponibile venerdì mattina")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert not any(
+        assignment.person == "Lorenzo Sansavini" and assignment.start == "07:30"
+        for assignment in friday.assignments()
+    )
+    assert any(
+        assignment.person == GIAMMARCO and assignment.activity == "lake" and assignment.start == "07:30"
+        for assignment in friday.assignments()
+    )
+    assert any("Lorenzo ha" in warning for warning in schedule.global_warnings)
+    assert any("Venerdì" in warning and "devono essere 8 ore" in warning for warning in schedule.global_warnings)
+
+
+def test_forced_lake_closing_and_extra_lake_coverage_are_applied():
+    schedule = generate_weekly_schedule(
+        "Giammarco deve fare chiusura lago domenica. Sabato pomeriggio serve più copertura al lago."
+    )
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+    saturday = next(day for day in schedule.days if day.day == "Sabato")
+
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "14:00"
+        and assignment.end == "18:30"
+        for assignment in sunday.assignments()
+    )
+    assert any("attenzione extra" in note for note in saturday.notes)
+    assert any(assignment.person == GIAMMARCO and assignment.activity == "lake" for assignment in saturday.assignments())
+
+
+def test_exceptional_closure_and_opening_change_required_coverage():
+    schedule = generate_weekly_schedule("Il negozio resta chiuso giovedì pomeriggio. Apertura straordinaria del lago lunedì.")
+    monday = next(day for day in schedule.days if day.day == "Lunedì")
+    thursday = next(day for day in schedule.days if day.day == "Giovedì")
+
+    assert monday.lake_required_ranges == [("07:30", "18:30")]
+    assert any(assignment.activity == "lake" for assignment in monday.assignments())
+    assert thursday.shop_required_ranges == [("09:00", "12:30")]
+    assert thursday.shop_afternoon == []
+    assert not any("negozio pomeriggio" in warning for warning in thursday.warnings)

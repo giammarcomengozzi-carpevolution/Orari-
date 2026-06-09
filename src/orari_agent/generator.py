@@ -9,7 +9,7 @@ from .business_rules import ActivityId, CARPEEVOLUTION_STORE, TENUTA_DEL_GERMANO
 from .models import Assignment, DaySchedule, WeeklySchedule
 from .people import ANGELO, GIAMMARCO, LORENZO
 from .validator import validate_schedule
-from .weekly_input import WeeklyInstruction, parse_weekly_instruction
+from .weekly_input import CoverageRequest, WeeklyInstruction, parse_weekly_instruction
 from .wife_calendar import WifeCalendarRepository, can_giammarco_open_lake_at_0730
 
 
@@ -69,6 +69,55 @@ def _week_dates_by_day(week_start_date: str | date | None) -> dict[str, str]:
 
 
 
+def _coverage_request(
+    day: str, person: str, activity: ActivityId, start: str, end: str, label: str
+) -> CoverageRequest:
+    return CoverageRequest(day, person, activity, start, end, label)
+
+
+def _required_ranges_for(day: str, activity: ActivityId, instruction: WeeklyInstruction) -> list[tuple[str, str]]:
+    base: list[tuple[str, str]] = []
+    if activity == ActivityId.LAKE:
+        if day in TENUTA_DEL_GERMANO.open_days or _has_exceptional_opening(instruction, day, activity):
+            base = [LAKE_FULL_DAY]
+    elif day in CARPEEVOLUTION_STORE.open_days or _has_exceptional_opening(instruction, day, activity):
+        base = [SHOP_MORNING, SHOP_AFTERNOON]
+
+    for opening in instruction.exceptional_openings:
+        if opening.day == day and opening.activity == activity and opening.period != "full_day":
+            base = [_period_range(activity, opening.period)]
+
+    for closure in instruction.exceptional_closures:
+        if closure.day != day or closure.activity != activity:
+            continue
+        if closure.period == "full_day":
+            base = []
+        else:
+            closed = _period_range(activity, closure.period)
+            base = [time_range for time_range in base if time_range != closed]
+    return base
+
+
+def _has_exceptional_opening(instruction: WeeklyInstruction, day: str, activity: ActivityId) -> bool:
+    return any(opening.day == day and opening.activity == activity for opening in instruction.exceptional_openings)
+
+
+def _period_range(activity: ActivityId, period: str) -> tuple[str, str]:
+    if activity == ActivityId.LAKE:
+        return ("07:30", "14:00") if period == "morning" else ("14:00", "18:30")
+    return SHOP_MORNING if period == "morning" else SHOP_AFTERNOON
+
+
+def _is_range_required(day_schedule: DaySchedule, activity: ActivityId, start: str, end: str) -> bool:
+    required_ranges = (
+        day_schedule.lake_required_ranges if activity == ActivityId.LAKE else day_schedule.shop_required_ranges
+    )
+    return any(
+        _to_minutes(req_start) <= _to_minutes(start) and _to_minutes(end) <= _to_minutes(req_end)
+        for req_start, req_end in (required_ranges or [])
+    )
+
+
 def _expand_giammarco_requested_shop_days(
     instruction: WeeklyInstruction, lorenzo_days: set[str]
 ) -> None:
@@ -92,6 +141,17 @@ def _expand_giammarco_requested_shop_days(
     ]
 
     for day in [*preferred_days, *fallback_days]:
+        if day not in instruction.giammarco_shop_days:
+            instruction.forced_shop_coverage.extend(
+                [
+                    _coverage_request(
+                        day, GIAMMARCO.full_name, ActivityId.SHOP, *SHOP_MORNING, "copertura negozio"
+                    ),
+                    _coverage_request(
+                        day, GIAMMARCO.full_name, ActivityId.SHOP, *SHOP_AFTERNOON, "copertura negozio"
+                    ),
+                ]
+            )
         instruction.giammarco_shop_days.add(day)
         if len(instruction.giammarco_shop_days) >= requested_count:
             return
@@ -103,19 +163,19 @@ def _resolve_lorenzo_working_days(instruction: WeeklyInstruction) -> set[str]:
     forced_days = {
         day
         for day in instruction.lorenzo_must_open_lake_days
-        if day in TENUTA_DEL_GERMANO.open_days and day not in unavailable
+        if _required_ranges_for(day, ActivityId.LAKE, instruction) and day not in unavailable
     }
     working_days = {
         day
         for day in LORENZO.ideal_working_days
-        if day in TENUTA_DEL_GERMANO.open_days and day not in unavailable
+        if _required_ranges_for(day, ActivityId.LAKE, instruction) and day not in unavailable
     }
     working_days.update(forced_days)
 
     target_days = LORENZO.strict_working_days or len(working_days)
     if len(working_days) < target_days:
-        for day in TENUTA_DEL_GERMANO.open_days:
-            if day not in unavailable:
+        for day in WEEK_DAYS:
+            if _required_ranges_for(day, ActivityId.LAKE, instruction) and day not in unavailable:
                 working_days.add(day)
             if len(working_days) >= target_days:
                 break
@@ -139,6 +199,8 @@ def _build_day(
     week_dates: dict[str, str],
 ) -> DaySchedule:
     day_schedule = DaySchedule(day=day)
+    day_schedule.lake_required_ranges = _required_ranges_for(day, ActivityId.LAKE, instruction)
+    day_schedule.shop_required_ranges = _required_ranges_for(day, ActivityId.SHOP, instruction)
     unavailable = {
         person
         for person in (ANGELO.full_name, GIAMMARCO.full_name, LORENZO.full_name)
@@ -147,22 +209,22 @@ def _build_day(
 
     _add_closure_and_absence_notes(day_schedule, unavailable)
     _add_giammarco_external_work(day_schedule, instruction)
-    _assign_lorenzo_default_lake(day_schedule, lorenzo_days, unavailable)
-    _assign_forced_giammarco(day_schedule, instruction, unavailable, wife_codes, week_dates)
-    _assign_default_angelo_shop(day_schedule, instruction, unavailable)
-    _fill_required_coverage(day_schedule, unavailable, wife_codes, week_dates)
+    _assign_lorenzo_default_lake(day_schedule, lorenzo_days, instruction)
+    _assign_forced_coverage(day_schedule, instruction, wife_codes, week_dates)
+    _assign_default_angelo_shop(day_schedule, instruction)
+    _fill_required_coverage(day_schedule, instruction, wife_codes, week_dates)
     _apply_notes(day_schedule, instruction, wife_codes, week_dates)
 
     return day_schedule
 
 
 def _add_closure_and_absence_notes(day_schedule: DaySchedule, unavailable: set[str]) -> None:
-    if day_schedule.day in TENUTA_DEL_GERMANO.closed_days:
+    if not day_schedule.lake_required_ranges:
         day_schedule.notes.append("Lago chiuso")
-    if day_schedule.day in CARPEEVOLUTION_STORE.closed_days:
+    if not day_schedule.shop_required_ranges:
         day_schedule.notes.append("Negozio chiuso")
     for person in sorted(unavailable):
-        day_schedule.notes.append(f"{person} non disponibile per istruzione settimanale")
+        day_schedule.notes.append(f"{person} non disponibile tutto il giorno per istruzione settimanale")
 
 
 def _add_giammarco_external_work(day_schedule: DaySchedule, instruction: WeeklyInstruction) -> None:
@@ -179,59 +241,77 @@ def _add_giammarco_external_work(day_schedule: DaySchedule, instruction: WeeklyI
 def _assign_lorenzo_default_lake(
     day_schedule: DaySchedule,
     lorenzo_days: set[str],
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
 ) -> None:
     day = day_schedule.day
-    if day not in TENUTA_DEL_GERMANO.open_days:
+    if not day_schedule.lake_required_ranges:
         return
-    if day not in lorenzo_days or LORENZO.full_name in unavailable:
+    if day not in lorenzo_days or day in instruction.unavailable_days_for(LORENZO.full_name):
         return
 
-    day_schedule.lake_morning.append(_lorenzo_lake_morning())
-    day_schedule.lake_afternoon.append(_lorenzo_lake_afternoon())
+    if not instruction.person_is_absent_for_range(LORENZO.full_name, day, "07:30", "14:00"):
+        day_schedule.lake_morning.append(_lorenzo_lake_morning())
+    if not instruction.person_is_absent_for_range(LORENZO.full_name, day, "15:00", "16:30"):
+        day_schedule.lake_afternoon.append(_lorenzo_lake_afternoon())
 
 
-def _assign_forced_giammarco(
+def _assign_forced_coverage(
     day_schedule: DaySchedule,
     instruction: WeeklyInstruction,
-    unavailable: set[str],
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
-    day = day_schedule.day
-    if GIAMMARCO.full_name in unavailable:
-        return
-
-    if day in instruction.giammarco_shop_days and day in CARPEEVOLUTION_STORE.open_days:
-        _append_shop_full_day(day_schedule, GIAMMARCO.full_name)
-        day_schedule.notes.append("Giammarco in negozio per istruzione settimanale")
-
-    if day in instruction.giammarco_lake_days and day in TENUTA_DEL_GERMANO.open_days:
-        _append_lake_full_day(day_schedule, GIAMMARCO.full_name, wife_codes, week_dates)
-        day_schedule.notes.append("Giammarco al lago per istruzione settimanale")
+    for request in [*instruction.forced_shop_coverage, *instruction.forced_lake_coverage]:
+        if request.day != day_schedule.day:
+            continue
+        if not _is_range_required(day_schedule, request.activity, request.start, request.end):
+            day_schedule.warnings.append(
+                f"Copertura richiesta per {request.person} su {request.label} non applicata: attività chiusa o fascia non aperta."
+            )
+            continue
+        if _person_covers_range(day_schedule, request.person, request.activity, request.start, request.end):
+            day_schedule.notes.append(f"{request.person} già su {request.label} per istruzione settimanale")
+            continue
+        if not _can_assign_person(
+            day_schedule,
+            request.person,
+            request.activity,
+            request.start,
+            request.end,
+            instruction,
+            wife_codes,
+            week_dates,
+        ):
+            day_schedule.warnings.append(
+                f"Copertura richiesta impossibile: {request.person} non può coprire {request.label} "
+                f"{request.start}-{request.end}."
+            )
+            continue
+        _append_assignment(
+            day_schedule, _assignment(request.person, request.activity, request.start, request.end)
+        )
+        day_schedule.notes.append(f"{request.person} assegnato a {request.label} per istruzione settimanale")
 
 
 def _assign_default_angelo_shop(
     day_schedule: DaySchedule,
     instruction: WeeklyInstruction,
-    unavailable: set[str],
 ) -> None:
     day = day_schedule.day
-    if day not in CARPEEVOLUTION_STORE.open_days or ANGELO.full_name in unavailable:
+    if not day_schedule.shop_required_ranges or day in instruction.unavailable_days_for(ANGELO.full_name):
         return
 
-    # Se Giammarco è stato richiesto in negozio, lasciamo Angelo libero per il
-    # riequilibrio del lago: il negozio è già coperto e Angelo può intervenire
-    # solo dove serve davvero, senza creare sovrapposizioni.
-    if day in instruction.giammarco_shop_days:
+    if any(request.day == day and request.person == GIAMMARCO.full_name for request in instruction.forced_shop_coverage):
         return
 
-    _append_shop_full_day(day_schedule, ANGELO.full_name)
+    for start, end in day_schedule.shop_required_ranges:
+        if not instruction.person_is_absent_for_range(ANGELO.full_name, day, start, end):
+            _append_if_no_person_conflict(day_schedule, ANGELO.full_name, ActivityId.SHOP, start, end)
 
 
 def _fill_required_coverage(
     day_schedule: DaySchedule,
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
@@ -239,31 +319,31 @@ def _fill_required_coverage(
 
     # Angelo può normalmente gestire il negozio da solo. Se però non c'è in un
     # giorno di apertura, Giammarco deve prima coprire il presidio negozio.
-    if day in CARPEEVOLUTION_STORE.open_days and ANGELO.full_name in unavailable:
-        _fill_shop_coverage(day_schedule, unavailable, wife_codes, week_dates)
-        _fill_lake_coverage(day_schedule, unavailable, wife_codes, week_dates)
+    if day_schedule.shop_required_ranges and day in instruction.unavailable_days_for(ANGELO.full_name):
+        _fill_shop_coverage(day_schedule, instruction, wife_codes, week_dates)
+        _fill_lake_coverage(day_schedule, instruction, wife_codes, week_dates)
         return
 
     # Priorità operativa: quando Giammarco serve come copertura, lo usiamo prima
     # sul lago; il negozio resta ad Angelo salvo richiesta esplicita o buco.
-    _fill_lake_coverage(day_schedule, unavailable, wife_codes, week_dates)
-    _fill_shop_coverage(day_schedule, unavailable, wife_codes, week_dates)
+    _fill_lake_coverage(day_schedule, instruction, wife_codes, week_dates)
+    _fill_shop_coverage(day_schedule, instruction, wife_codes, week_dates)
 
 
 def _fill_lake_coverage(
     day_schedule: DaySchedule,
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
-    if day_schedule.day not in TENUTA_DEL_GERMANO.open_days:
+    if not day_schedule.lake_required_ranges:
         return
     _fill_activity_ranges(
         day_schedule,
         ActivityId.LAKE,
-        [LAKE_FULL_DAY],
+        day_schedule.lake_required_ranges,
         (GIAMMARCO.full_name, ANGELO.full_name),
-        unavailable,
+        instruction,
         wife_codes,
         week_dates,
     )
@@ -271,18 +351,18 @@ def _fill_lake_coverage(
 
 def _fill_shop_coverage(
     day_schedule: DaySchedule,
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
-    if day_schedule.day not in CARPEEVOLUTION_STORE.open_days:
+    if not day_schedule.shop_required_ranges:
         return
     _fill_activity_ranges(
         day_schedule,
         ActivityId.SHOP,
-        [SHOP_MORNING, SHOP_AFTERNOON],
+        day_schedule.shop_required_ranges,
         (ANGELO.full_name, GIAMMARCO.full_name),
-        unavailable,
+        instruction,
         wife_codes,
         week_dates,
     )
@@ -293,7 +373,7 @@ def _fill_activity_ranges(
     activity: ActivityId,
     required_ranges: Iterable[tuple[str, str]],
     candidate_people: tuple[str, ...],
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
@@ -309,7 +389,7 @@ def _fill_activity_ranges(
                 _to_label(start_minutes),
                 _to_label(end_minutes),
                 candidate_people,
-                unavailable,
+                instruction,
                 wife_codes,
                 week_dates,
             )
@@ -321,7 +401,7 @@ def _assign_first_available(
     start: str,
     end: str,
     candidate_people: tuple[str, ...],
-    unavailable: set[str],
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
@@ -336,17 +416,17 @@ def _assign_first_available(
         split = _to_label(giammarco_conflict[1])
         fallback_people = tuple(person for person in candidate_people if person != GIAMMARCO.full_name)
         _assign_first_available(
-            day_schedule, activity, start, split, fallback_people, unavailable, wife_codes, week_dates
+            day_schedule, activity, start, split, fallback_people, instruction, wife_codes, week_dates
         )
         _assign_first_available(
-            day_schedule, activity, split, end, candidate_people, unavailable, wife_codes, week_dates
+            day_schedule, activity, split, end, candidate_people, instruction, wife_codes, week_dates
         )
         return
 
     for person in candidate_people:
-        if person in unavailable:
+        if instruction.person_is_absent_for_range(person, day_schedule.day, start, end):
             continue
-        if not _can_assign_person(day_schedule, person, activity, start, end, wife_codes, week_dates):
+        if not _can_assign_person(day_schedule, person, activity, start, end, instruction, wife_codes, week_dates):
             continue
         _append_assignment(day_schedule, _assignment(person, activity, start, end))
         return
@@ -358,9 +438,12 @@ def _can_assign_person(
     activity: ActivityId,
     start: str,
     end: str,
+    instruction: WeeklyInstruction,
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> bool:
+    if instruction.person_is_absent_for_range(person, day_schedule.day, start, end):
+        return False
     if _person_has_conflict(day_schedule, person, start, end):
         return False
     if person == GIAMMARCO.full_name and activity == ActivityId.LAKE and start == "07:30":
@@ -392,9 +475,9 @@ def _append_lake_full_day(
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
-    if _can_assign_person(day_schedule, person, ActivityId.LAKE, "07:30", "14:00", wife_codes, week_dates):
+    if _can_assign_person(day_schedule, person, ActivityId.LAKE, "07:30", "14:00", WeeklyInstruction(), wife_codes, week_dates):
         _append_assignment(day_schedule, _assignment(person, ActivityId.LAKE, "07:30", "14:00"))
-    if _can_assign_person(day_schedule, person, ActivityId.LAKE, "14:00", "18:30", wife_codes, week_dates):
+    if _can_assign_person(day_schedule, person, ActivityId.LAKE, "14:00", "18:30", WeeklyInstruction(), wife_codes, week_dates):
         _append_assignment(day_schedule, _assignment(person, ActivityId.LAKE, "14:00", "18:30"))
 
 
@@ -437,17 +520,37 @@ def _apply_notes(
 
     if day_schedule.day in instruction.high_lake_booking_days:
         day_schedule.notes.append("Molte prenotazioni al lago: consigliata attenzione extra")
+
+    explicit_extra = [
+        request for request in instruction.extra_lake_coverage if request.day == day_schedule.day
+    ]
+    if not explicit_extra and day_schedule.day in instruction.high_lake_booking_days:
+        explicit_extra = [
+            CoverageRequest(
+                day_schedule.day,
+                GIAMMARCO.full_name,
+                ActivityId.LAKE,
+                "07:30",
+                "14:00",
+                "copertura extra lago",
+            )
+        ]
+
+    for request in explicit_extra:
+        if _person_covers_range(day_schedule, request.person, request.activity, request.start, request.end):
+            continue
         if _can_assign_person(
             day_schedule,
-            GIAMMARCO.full_name,
-            ActivityId.LAKE,
-            "07:30",
-            "14:00",
+            request.person,
+            request.activity,
+            request.start,
+            request.end,
+            instruction,
             wife_codes,
             week_dates,
         ):
-            day_schedule.lake_morning.append(
-                Assignment(GIAMMARCO.full_name, ActivityId.LAKE, "morning", "07:30", "14:00", 6.5)
+            _append_assignment(
+                day_schedule, _assignment(request.person, request.activity, request.start, request.end)
             )
 
 
@@ -478,6 +581,18 @@ def _lorenzo_lake_afternoon() -> Assignment:
 def _assignments_for_activity(day_schedule: DaySchedule, activity: ActivityId) -> list[Assignment]:
     return [assignment for assignment in day_schedule.assignments() if assignment.activity == activity]
 
+
+
+def _person_covers_range(
+    day_schedule: DaySchedule, person: str, activity: ActivityId, start: str, end: str
+) -> bool:
+    return any(
+        assignment.person == person
+        and assignment.activity == activity
+        and _to_minutes(assignment.start) <= _to_minutes(start)
+        and _to_minutes(end) <= _to_minutes(assignment.end)
+        for assignment in day_schedule.assignments()
+    )
 
 def _person_has_conflict(day_schedule: DaySchedule, person: str, start: str, end: str) -> bool:
     return _conflicting_interval(day_schedule, person, start, end) is not None

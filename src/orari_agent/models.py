@@ -36,6 +36,8 @@ class DaySchedule:
     company_work: list[Assignment] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    lake_required_ranges: list[tuple[str, str]] | None = None
+    shop_required_ranges: list[tuple[str, str]] | None = None
 
     def assignments(self) -> list[Assignment]:
         return [
