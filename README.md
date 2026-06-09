@@ -44,6 +44,31 @@ pip install -e .
 orari-agent "Domenica il lago ha molte prenotazioni"
 ```
 
+
+## Esportazione PDF per WhatsApp
+
+È possibile generare un PDF settimanale pronto per la condivisione manuale su WhatsApp con Angelo, Lorenzo e Giammarco. Il file usa formato **A4 orizzontale**, etichette italiane e una tabella leggibile da smartphone con colonne per lago, negozio e note operative.
+
+Esempio con nome file automatico nella cartella corrente:
+
+```bash
+PYTHONPATH=src python -m orari_agent --week-start 2026-06-08 --pdf "Domenica Lorenzo è assente"
+```
+
+Con un percorso di output esplicito:
+
+```bash
+PYTHONPATH=src python -m orari_agent --week-start 2026-06-08 --pdf --output ./export/Orario_CarpeEvolution_Tenuta_2026-06-08.pdf "Sabato Angelo è in ferie"
+```
+
+Se `--output` indica una cartella, il programma crea al suo interno un file con nome standard:
+
+```text
+Orario_CarpeEvolution_Tenuta_YYYY-MM-DD.pdf
+```
+
+La data nel nome file deriva da `--week-start`, quando presente; altrimenti viene usata la data del giorno di generazione. L'invio automatico su WhatsApp non è incluso: il PDF viene solo creato su disco per essere condiviso manualmente.
+
 ## Esempi di comportamento
 
 - Se **Giammarco è richiesto in negozio** in un giorno in cui Lorenzo è al lago, il negozio viene coperto da Giammarco e Angelo può essere spostato sulla chiusura del lago 16:30-18:30.
@@ -58,12 +83,13 @@ orari-agent "Domenica il lago ha molte prenotazioni"
 - `src/orari_agent/generator.py` — generazione e riequilibrio dell'orario settimanale.
 - `src/orari_agent/validator.py` — controlli su ore, giorni, coperture e conflitti.
 - `src/orari_agent/formatter.py` — output italiano leggibile.
+- `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale separata dal motore di scheduling.
 - `src/orari_agent/wife_calendar.py` — predisposizione per calendario persistente della moglie di Giammarco.
 - `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale.
 
 ## Limiti intenzionali
 
-- La generazione PDF non è ancora implementata.
+- L'invio automatico WhatsApp non è implementato: il PDF va condiviso manualmente.
 - L'OCR e la lettura immagini non sono ancora implementati.
 - Il parser non è un NLP completo: riconosce pattern ricorrenti e conserva come note non interpretate le frasi non supportate.
 - Non vengono introdotte risorse esterne oltre ad Angelo, Giammarco e Lorenzo.

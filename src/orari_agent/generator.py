@@ -38,12 +38,18 @@ def generate_weekly_schedule(
     wife_codes = wife_calendar_codes if wife_calendar_codes is not None else _load_wife_calendar_codes(wife_calendar_repository)
     week_dates = _week_dates_by_day(week_start_date)
     days = [_build_day(day, lorenzo_days, instruction, wife_codes, week_dates) for day in WEEK_DAYS]
-    schedule = WeeklySchedule(days=days)
+    schedule = WeeklySchedule(days=days, week_start_date=_normalize_week_start_date(week_start_date))
     schedule.global_warnings.extend(
         f"Nota non interpretata automaticamente: {note}" for note in instruction.unknown_notes
     )
     validate_schedule(schedule)
     return schedule
+
+
+def _normalize_week_start_date(week_start_date: str | date | None) -> str | None:
+    if isinstance(week_start_date, date):
+        return week_start_date.isoformat()
+    return week_start_date
 
 
 def _load_wife_calendar_codes(repository: WifeCalendarRepository | None) -> dict[str, str]:

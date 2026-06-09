@@ -53,3 +53,4 @@ class WeeklySchedule:
 
     days: list[DaySchedule]
     global_warnings: list[str] = field(default_factory=list)
+    week_start_date: str | None = None
