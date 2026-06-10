@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from orari_agent.backup import collect_backup_info, create_backup
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -23,7 +25,11 @@ from orari_agent.storage.week_parser import (
     parse_week_request,
 )
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
-from orari_agent.wife_calendar_ocr import WifeCalendarOcrResult, extract_m_dates_from_image
+from orari_agent.wife_calendar_excel import extract_m_dates_from_excel
+from orari_agent.wife_calendar_ocr import (
+    WifeCalendarOcrResult,
+    extract_m_dates_from_image,
+)
 
 from .note_messages import saved_note_message
 from .schedule_service import ScheduleService
@@ -76,7 +82,6 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancella 12 — cancella la nota con ID 12\n"
         "/cancella_tutte confermo — archivia tutte le note attive della prossima settimana\n"
         "/cancella_tutte questa settimana confermo — archivia tutte le note attive della settimana scelta\n"
-
         "/memoria — aiuto memoria operativa persistente\n"
         "/memoria_aggiungi testo — salva ferie, assenze o vincoli futuri\n"
         "/memoria_lista [mese] — mostra memorie attive\n"
@@ -342,6 +347,150 @@ async def cancella_tutte(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+async def carica_calendario_moglie(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if update.effective_message.document:
+        await _save_wife_calendar_excel(update, context, wife_repository)
+        return
+    context.user_data["awaiting_wife_calendar_excel"] = True
+    await update.effective_message.reply_text(
+        "Mandami ora il file Excel .xlsx del calendario moglie. "
+        "Importerò solo le celle con codice M: P, I, F, colori e celle vuote saranno ignorati."
+    )
+
+
+async def wife_calendar_document(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    document = update.effective_message.document
+    if document is None:
+        return
+    caption = (update.effective_message.caption or "").strip()
+    waiting = bool(context.user_data.get("awaiting_wife_calendar_excel"))
+    if not waiting and not caption.startswith("/carica_calendario_moglie"):
+        return
+    await _save_wife_calendar_excel(update, context, wife_repository)
+
+
+async def calendario_moglie_info(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    entries = wife_repository.list_entries("M")
+    latest = wife_repository.latest_import_record()
+    lines = ["Info calendario moglie:"]
+    if entries:
+        lines.extend(
+            [
+                f"Prima data caricata: {entries[0].date}",
+                f"Ultima data caricata: {entries[-1].date}",
+                f"Numero date M: {len(entries)}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Prima data caricata: nessuna",
+                "Ultima data caricata: nessuna",
+                "Numero date M: 0",
+            ]
+        )
+    lines.append(
+        "Ultimo import: "
+        + (
+            f"{latest.created_at} ({latest.source}, {latest.status})"
+            if latest
+            else "nessuno"
+        )
+    )
+    lines.append(
+        "Regola attiva: solo le date M salvate bloccano Gianmarco all'apertura lago 07:30; date future mancanti = nessun vincolo."
+    )
+    await update.effective_message.reply_text("\n".join(lines))
+
+
+async def calendario_moglie_reset(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if context.args != ["confermo"]:
+        await update.effective_message.reply_text(
+            "Per sicurezza, ripeti con: /calendario_moglie_reset confermo"
+        )
+        return
+    count = wife_repository.reset()
+    wife_repository.add_import_record(
+        source="telegram_reset",
+        status="reset",
+        summary=f"Calendario moglie svuotato: {count} righe eliminate.",
+        warnings=[],
+    )
+    await update.effective_message.reply_text(
+        f"Calendario moglie svuotato: {count} righe eliminate."
+    )
+
+
+async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    database_path = Path(
+        context.application.bot_data.get("database_path", "data/orari_bot.sqlite3")
+    )
+    data_dir = Path(context.application.bot_data.get("data_dir", "data"))
+    backup_dir = Path(
+        context.application.bot_data.get("backup_dir", data_dir / "backups")
+    )
+    zip_path = create_backup(
+        database_path=database_path, data_dir=data_dir, backup_dir=backup_dir
+    )
+    with zip_path.open("rb") as backup_file:
+        await update.effective_message.reply_document(
+            document=backup_file,
+            filename=zip_path.name,
+            caption=f"Backup creato: {zip_path.name}",
+        )
+
+
+async def backup_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    database_path = Path(
+        context.application.bot_data.get("database_path", "data/orari_bot.sqlite3")
+    )
+    data_dir = Path(context.application.bot_data.get("data_dir", "data"))
+    backup_dir = Path(
+        context.application.bot_data.get("backup_dir", data_dir / "backups")
+    )
+    info = collect_backup_info(database_path, backup_dir)
+    await update.effective_message.reply_text(
+        "Backup info:\n"
+        f"Database: {info.database_path}\n"
+        f"Note: {info.notes_count}\n"
+        f"Memorie operative: {info.memories_count}\n"
+        f"Date calendario moglie: {info.wife_calendar_entries_count}\n"
+        f"Ultimo backup: {info.latest_backup.name if info.latest_backup else 'nessuno'}"
+    )
+
+
 async def moglie_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     allowed_user_id, _, _, wife_repository = _deps(context)
     if not is_allowed_user(update, allowed_user_id):
@@ -444,7 +593,9 @@ async def importa_calendario_moglie(
     )
 
 
-async def wife_calendar_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def wife_calendar_image(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     allowed_user_id, _, _, wife_repository = _deps(context)
     if not is_allowed_user(update, allowed_user_id):
         await reject_unauthorized(update)
@@ -629,9 +780,7 @@ def _parse_import_dates(text: str, command: str) -> tuple[list[str], list[str]]:
     first_token = payload.split(maxsplit=1)[0] if payload else ""
     if first_token == command or first_token.startswith(command + "@"):
         payload = payload[len(first_token) :]
-    tokens = [
-        token.strip() for token in re.split(r"[,;\s]+", payload) if token.strip()
-    ]
+    tokens = [token.strip() for token in re.split(r"[,;\s]+", payload) if token.strip()]
     valid: list[str] = []
     invalid: list[str] = []
     seen: set[str] = set()
@@ -724,6 +873,69 @@ async def _save_wife_calendar_image(
         "Non ho salvato automaticamente le date.\n"
         "Puoi mandarmi una foto più dritta e nitida oppure usare /moglie_importa_m."
         f"\nDettaglio OCR: {warnings[0]}"
+    )
+
+
+async def _save_wife_calendar_excel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    wife_repository: WifeCalendarRepository,
+) -> None:
+    import_dir = Path(
+        context.application.bot_data.get("wife_calendar_import_dir", "data/imports")
+    )
+    import_dir.mkdir(parents=True, exist_ok=True)
+    document = update.effective_message.document
+    filename = getattr(document, "file_name", "") or "calendario_moglie.xlsx"
+    if not filename.lower().endswith(".xlsx"):
+        await update.effective_message.reply_text(
+            "File non valido: manda un file Excel .xlsx."
+        )
+        return
+    telegram_file = await document.get_file()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    excel_path = import_dir / f"moglie_{timestamp}_{uuid4().hex[:8]}.xlsx"
+    await telegram_file.download_to_drive(custom_path=excel_path)
+    context.user_data["awaiting_wife_calendar_excel"] = False
+
+    try:
+        result = extract_m_dates_from_excel(excel_path)
+    except Exception as exc:  # noqa: BLE001 - errore file utente da mostrare in chat
+        wife_repository.add_import_record(
+            source="telegram_excel",
+            image_path=str(excel_path),
+            status="excel_failed",
+            summary=f"Import Excel fallito: {exc}",
+            warnings=[str(exc)],
+        )
+        await update.effective_message.reply_text(
+            "Non sono riuscito a leggere il file Excel. Controlla che sia un .xlsx valido."
+        )
+        return
+
+    inserted, updated = (
+        wife_repository.bulk_upsert_code(result.dates, "M", source="telegram_excel")
+        if result.dates
+        else (0, 0)
+    )
+    summary = (
+        "Import Excel calendario moglie completato.\n"
+        f"Date M trovate: {len(result.dates)}.\n"
+        f"Celle M lette: {result.m_cells}. Celle non vuote analizzate: {result.scanned_cells}.\n"
+        f"Inserite: {inserted}. Aggiornate: {updated}."
+    )
+    if result.dates:
+        summary += f"\nPrima data: {result.dates[0]}. Ultima data: {result.dates[-1]}."
+    wife_repository.add_import_record(
+        source="telegram_excel",
+        image_path=str(excel_path),
+        status="excel_imported",
+        summary=summary,
+        warnings=result.warnings,
+    )
+    await update.effective_message.reply_text(
+        summary
+        + "\nSolo M è stato importato; P, I, F, colori e celle vuote sono stati ignorati."
     )
 
 
