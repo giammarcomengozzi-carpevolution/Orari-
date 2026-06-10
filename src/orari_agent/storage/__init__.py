@@ -1,0 +1,1 @@
+"""Repository SQLite del chatbot."""

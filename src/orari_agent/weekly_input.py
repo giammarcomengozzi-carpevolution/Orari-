@@ -41,6 +41,8 @@ PEOPLE_ALIASES = {
     "angelo": ANGELO.full_name,
     "antonelli": ANGELO.full_name,
     "giammarco": GIAMMARCO.full_name,
+    "gianmarco": GIAMMARCO.full_name,
+    "io": GIAMMARCO.full_name,
     "mengozzi": GIAMMARCO.full_name,
     "lorenzo": LORENZO.full_name,
     "sansavini": LORENZO.full_name,
@@ -767,7 +769,16 @@ def _days_in_text(lowered_text: str) -> set[str]:
 
 
 def _people_in_text(lowered_text: str) -> set[str]:
-    return {person for alias, person in PEOPLE_ALIASES.items() if alias in lowered_text}
+    people = {
+        person
+        for alias, person in PEOPLE_ALIASES.items()
+        if (
+            alias == "io"
+            and f" {alias} " in f" {lowered_text} "
+        )
+        or (alias != "io" and alias in lowered_text)
+    }
+    return people
 
 
 def _period_in_text(lowered_text: str) -> str:
