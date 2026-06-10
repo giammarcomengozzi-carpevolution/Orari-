@@ -13,6 +13,7 @@ from telegram.ext import (
 from orari_agent.config import BotConfig
 from orari_agent.storage.db import connect
 from orari_agent.storage.notes_repository import NotesRepository
+from orari_agent.storage.operational_memory_repository import OperationalMemoryRepository
 from orari_agent.storage.schedules_repository import SchedulesRepository
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
 
@@ -27,10 +28,12 @@ def build_application(config: BotConfig) -> Application:
     notes_repository = NotesRepository(connection)
     schedules_repository = SchedulesRepository(connection)
     wife_calendar_repository = WifeCalendarRepository(connection)
+    operational_memory_repository = OperationalMemoryRepository(connection)
     schedule_service = ScheduleService(
         notes_repository,
         schedules_repository,
         wife_calendar_repository,
+        operational_memory_repository,
         config.output_dir,
     )
 
@@ -39,6 +42,7 @@ def build_application(config: BotConfig) -> Application:
     application.bot_data["notes_repository"] = notes_repository
     application.bot_data["schedule_service"] = schedule_service
     application.bot_data["wife_calendar_repository"] = wife_calendar_repository
+    application.bot_data["operational_memory_repository"] = operational_memory_repository
     application.bot_data["wife_calendar_import_dir"] = "data/imports"
 
     application.add_handler(CommandHandler("start", commands.start))
@@ -47,6 +51,15 @@ def build_application(config: BotConfig) -> Application:
     application.add_handler(CommandHandler("lista", commands.lista))
     application.add_handler(CommandHandler("cancella", commands.cancella))
     application.add_handler(CommandHandler("cancella_tutte", commands.cancella_tutte))
+    application.add_handler(CommandHandler("memoria", commands.memoria))
+    application.add_handler(
+        CommandHandler("memoria_aggiungi", commands.memoria_aggiungi)
+    )
+    application.add_handler(CommandHandler("memoria_lista", commands.memoria_lista))
+    application.add_handler(
+        CommandHandler("memoria_cancella", commands.memoria_cancella)
+    )
+    application.add_handler(CommandHandler("memoria_reset", commands.memoria_reset))
     application.add_handler(CommandHandler("moglie_set", commands.moglie_set))
     application.add_handler(CommandHandler("moglie_lista", commands.moglie_lista))
     application.add_handler(

@@ -225,6 +225,7 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - valida l'orario e riepiloga eventuali avvisi/conflitti;
 - crea un PDF A4 orizzontale pronto da inoltrare su Telegram o WhatsApp;
 - invia il PDF direttamente nella chat Telegram;
+- mantiene una **memoria operativa persistente** per ferie, assenze future, appuntamenti ricorrenti e vincoli non legati solo alla settimana corrente;
 - mantiene la tabella `wife_calendar` compilabile manualmente: solo il codice `M` blocca Giammarco dall’apertura lago alle 07:30.
 
 ## Comandi Telegram
@@ -242,6 +243,17 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - `/cancella_tutte settimana prossima confermo` — archivia tutte le note attive della prossima settimana.
 - `/cancella_tutte questa settimana confermo` — archivia tutte le note attive della settimana corrente.
 - `/cancella_tutte fra 2 settimane confermo` — archivia tutte le note attive della settimana dopo la prossima.
+- `/memoria` — mostra l’aiuto della memoria operativa persistente.
+- `/memoria_aggiungi Lorenzo in ferie dal 10 al 15 agosto` — salva ferie/assenze future e le applica automaticamente alle settimane sovrapposte.
+- `/memoria_aggiungi Angelo assente il 27 giugno` — salva un’assenza di una giornata.
+- `/memoria_aggiungi Angelo non c’è il 3 settembre mattina` — salva un’assenza parziale di mattina.
+- `/memoria_aggiungi Gianmarco attività aziendale esterna il 12 luglio dalle 10 alle 12` — salva lavoro esterno che non vale come copertura fissa.
+- `/memoria_aggiungi Gianmarco dal commercialista ogni giovedì mattina` — salva una ricorrenza settimanale semplice.
+- `/memoria_lista` — mostra tutte le memorie operative attive.
+- `/memoria_lista luglio` — filtra le memorie attive rilevanti per luglio, quando il mese è riconoscibile.
+- `/memoria_cancella ID` — archivia una singola memoria operativa.
+- `/memoria_reset` — chiede conferma prima di archiviare tutte le memorie operative.
+- `/memoria_reset confermo` — archivia tutte le memorie operative attive.
 - `/moglie_set YYYY-MM-DD M` — salva il codice `M` per quella data; blocca Giammarco dall’apertura lago alle 07:30.
 - `/moglie_set YYYY-MM-DD P` — salva il codice `P`; non ha effetto bloccante.
 - `/moglie_importa_m 2026-09-03,2026-09-10` — importa in blocco più date con codice `M`.
@@ -267,7 +279,7 @@ Martedì prossimo Angelo non c'è la mattina.
 Venerdì io sono dal commercialista alle 10.
 ```
 
-Se il messaggio inizia con `Genera orario`, il bot genera il PDF invece di salvarlo come nota.
+Se il messaggio inizia con `Genera orario`, il bot genera il PDF invece di salvarlo come nota. Se il messaggio inizia con `ricordati che ...`, `memorizza che ...` o `salva memoria ...`, viene salvato nella memoria operativa persistente invece che tra le note settimanali.
 
 Quando una nota viene salvata, il bot risponde con ID nota, settimana interpretata, data se riconosciuta, persona, luogo, tipo vincolo e una sintesi dell’interpretazione automatica. Se una frase non è supportata, la nota resta comunque salvata e viene riportata nel PDF come avviso/nota non interpretata.
 
@@ -282,6 +294,33 @@ Luogo: CarpeEvolution Store.
 Tipo vincolo: copertura_negozio.
 Interpretazione: Giammarco Mengozzi forzato su negozio Giovedì 09:00-12:30. Giammarco Mengozzi forzato su negozio Giovedì 15:30-19:30.
 ```
+
+## Memoria operativa persistente
+
+La memoria operativa serve per salvare una volta sola vincoli futuri o ricorrenti che non appartengono soltanto alla prossima settimana. Esempi tipici:
+
+- `Lorenzo in ferie dal 10 al 15 agosto`;
+- `Angelo assente il 27 giugno`;
+- `Angelo non c’è il 3 settembre mattina`;
+- `Gianmarco attività aziendale esterna il 12 luglio dalle 10 alle 12`;
+- `Gianmarco dal commercialista ogni giovedì mattina`.
+
+Differenza rispetto alle note settimanali:
+
+- le **note settimanali** (`/nota`) sono pensate per una settimana specifica o per la prossima settimana e vengono usate solo quando quella settimana viene generata;
+- la **memoria operativa** (`/memoria_aggiungi`) resta attiva nel database e viene caricata automaticamente ogni volta che `/genera` riguarda una settimana che si sovrappone alle sue date o alla sua ricorrenza.
+
+Quando viene generato l’orario, il bot:
+
+1. carica le note settimanali della settimana richiesta;
+2. carica le memorie operative attive sovrapposte alla settimana;
+3. trasforma le memorie interpretate negli stessi vincoli usati dal motore settimanale;
+4. aggiunge nel PDF note del tipo `Memoria: Lorenzo in ferie`, `Memoria: Angelo assente mattina` o `Memoria: Gianmarco commercialista 10:00-12:00`;
+5. conserva le memorie non interpretate come promemoria/avvisi, senza bloccare la generazione del PDF.
+
+Il parser della memoria è deterministico e non usa API AI esterne. Se l’anno non viene indicato, usa la prossima occorrenza della data: ad esempio, con data corrente 2026-06-10, `27 giugno` diventa `2026-06-27`; se una data è già passata nell’anno corrente, viene spostata all’anno successivo.
+
+Limite attuale delle ricorrenze: è supportata solo la ricorrenza settimanale per giorno della settimana e periodo (`mattina`, `pomeriggio` o giornata intera). Il formato interno è semplice, per esempio `WEEKLY:THURSDAY:MORNING`; non è ancora implementato un parser iCal complesso.
 
 ## Creare il bot con BotFather
 
@@ -396,7 +435,8 @@ WantedBy=multi-user.target
 - `requirements.txt` — dipendenze minime del bot se non usi `pip install -e .`.
 - `src/orari_agent/config.py` — lettura configurazione.
 - `src/orari_agent/bot/` — ApplicationBuilder, comandi, sicurezza e servizio di generazione.
-- `src/orari_agent/storage/` — SQLite, repository note, cronologia PDF, calendario moglie e parsing settimane.
+- `src/orari_agent/storage/` — SQLite, repository note, memoria operativa, cronologia PDF, calendario moglie e parsing settimane.
+- `src/orari_agent/scheduling/memory_adapter.py` — trasforma la memoria operativa in vincoli settimanali applicabili dal generatore.
 - `src/orari_agent/bot_runner.py` — entry point installabile `orari-telegram-bot`.
 
 ## Database SQLite
@@ -405,6 +445,7 @@ All'avvio il bot crea automaticamente le tabelle:
 
 - `notes` — note attive/usate/cancellate con testo originale e metadati interpretati;
 - `generated_schedules` — cronologia PDF generati, riepilogo e avvisi;
+- `operational_memory` — ferie, assenze future, impegni esterni e ricorrenze operative persistenti.
 - `wife_calendar` — tabella del calendario moglie compilabile da Telegram; solo il codice `M` ha effetto operativo, mentre `P`, `I`, `F` e colori/altre marcature sono ignorati.
 - `wife_calendar_imports` — registro degli import da immagine, con percorso file salvato, stato, riepilogo e avvisi per futuri miglioramenti OCR.
 
@@ -497,13 +538,16 @@ Per il test completo con Telegram:
 5. prova `/lista`, `/lista questa settimana`, `/lista settimana prossima`, `/lista fra 2 settimane` e `/lista dal 17 al 23 giugno`; ogni riga deve mostrare ID, settimana, data interpretata se presente e testo;
 6. prova `/cancella ID` usando un ID reale, poi riprova con lo stesso ID per verificare il messaggio “non trovata”;
 7. crea due note di prova e usa `/cancella_tutte confermo` oppure `/cancella_tutte questa settimana confermo`; senza `confermo` il bot deve rispondere `Per sicurezza, ripeti il comando aggiungendo confermo.`;
-8. prova `/moglie_set 2026-06-14 M`, poi `/moglie_lista`, poi `/moglie_cancella 2026-06-14`;
-9. prova `/moglie_importa_m 2026-09-03,2026-09-10`, poi `/moglie_lista M`;
-10. prova `/moglie_reset`: senza conferma deve rispondere `Per sicurezza, ripeti con: /moglie_reset confermo`;
-11. prova `/moglie_reset confermo` e verifica che `/moglie_lista` non mostri più righe;
-12. prova `/importa_calendario_moglie`, invia una foto e verifica che il bot la salvi in `data/imports/` chiedendo poi l’elenco date con `/moglie_importa_m`;
-13. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
-14. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
+8. prova `/memoria_aggiungi Lorenzo in ferie dal 10 al 15 agosto`, poi `/memoria_lista`, poi `/memoria_cancella ID`;
+9. prova `/memoria_reset`: senza conferma deve chiedere `/memoria_reset confermo`;
+10. prova `/memoria_reset confermo` e verifica che `/memoria_lista` non mostri più righe;
+11. prova `/moglie_set 2026-06-14 M`, poi `/moglie_lista`, poi `/moglie_cancella 2026-06-14`;
+12. prova `/moglie_importa_m 2026-09-03,2026-09-10`, poi `/moglie_lista M`;
+13. prova `/moglie_reset`: senza conferma deve rispondere `Per sicurezza, ripeti con: /moglie_reset confermo`;
+14. prova `/moglie_reset confermo` e verifica che `/moglie_lista` non mostri più righe;
+15. prova `/importa_calendario_moglie`, invia una foto e verifica che il bot la salvi in `data/imports/` chiedendo poi l’elenco date con `/moglie_importa_m`;
+16. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
+17. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
 
 ## Test automatici principali
 
@@ -522,4 +566,5 @@ I test coprono anche le frasi operative più importanti:
 - `Domenica al lago ci sono molte prenotazioni` aggiunge nota di carico alto e prova una copertura extra.
 - Il codice calendario moglie `M` blocca Gianmarco dall’apertura lago delle 07:30.
 - Le note sconosciute sono preservate come avvisi del PDF.
+- La memoria operativa salva assenze singole, ferie, assenze parziali, lavoro esterno, ricorrenze settimanali e preserva testo non interpretato senza interrompere la generazione.
 - La risposta `/nota` include la sintesi dell’interpretazione automatica.

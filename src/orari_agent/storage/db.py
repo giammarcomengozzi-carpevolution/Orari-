@@ -22,6 +22,30 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_week_status
 ON notes(target_week_start, target_week_end, status);
 
+
+CREATE TABLE IF NOT EXISTS operational_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    raw_text TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    recurrence_rule TEXT,
+    person TEXT,
+    location TEXT,
+    constraint_type TEXT NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL DEFAULT 'telegram',
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_operational_memory_status_dates
+ON operational_memory(status, start_date, end_date);
+
+CREATE INDEX IF NOT EXISTS idx_operational_memory_recurrence
+ON operational_memory(status, recurrence_rule);
+
 CREATE TABLE IF NOT EXISTS generated_schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
