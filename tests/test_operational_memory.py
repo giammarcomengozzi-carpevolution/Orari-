@@ -8,7 +8,9 @@ from orari_agent.scheduling.memory_adapter import memories_to_weekly_instruction
 from orari_agent.storage.db import connect
 from orari_agent.storage.notes_repository import NotesRepository
 from orari_agent.storage.operational_memory_parser import parse_operational_memory
-from orari_agent.storage.operational_memory_repository import OperationalMemoryRepository
+from orari_agent.storage.operational_memory_repository import (
+    OperationalMemoryRepository,
+)
 from orari_agent.storage.schedules_repository import SchedulesRepository
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
 
@@ -90,7 +92,9 @@ def test_add_weekly_recurring_thursday_morning_memory(tmp_path):
 def test_listing_memories(tmp_path):
     repo = _repo(tmp_path)
     repo.add(parse_operational_memory("Angelo assente il 27 giugno", today=TODAY))
-    repo.add(parse_operational_memory("Lorenzo in ferie dal 10 al 15 agosto", today=TODAY))
+    repo.add(
+        parse_operational_memory("Lorenzo in ferie dal 10 al 15 agosto", today=TODAY)
+    )
 
     memories = repo.list_active()
 
@@ -123,7 +127,9 @@ def test_reset_requires_confirmation_semantics_are_repository_reset(tmp_path):
 def test_schedule_generation_applies_memory_to_selected_week(tmp_path):
     connection = connect(tmp_path / "orari.sqlite3")
     memory_repo = OperationalMemoryRepository(connection)
-    memory_repo.add(parse_operational_memory("Lorenzo in ferie dal 10 al 15 agosto", today=TODAY))
+    memory_repo.add(
+        parse_operational_memory("Lorenzo in ferie dal 10 al 15 agosto", today=TODAY)
+    )
     service = ScheduleService(
         NotesRepository(connection),
         SchedulesRepository(connection),
@@ -134,9 +140,42 @@ def test_schedule_generation_applies_memory_to_selected_week(tmp_path):
 
     result = service.generate_for_week("2026-08-10", "2026-08-16")
 
-    assert "Memorie operative applicate: 1" in result.summary
+    assert "Memorie operative: 1" in result.summary
     assert result.memories[0].person == LORENZO.full_name
     assert result.pdf_path.exists()
+
+
+def test_telegram_generation_summary_includes_counts_and_filename(tmp_path):
+    from orari_agent.storage.week_parser import parse_note_metadata
+
+    connection = connect(tmp_path / "orari.sqlite3")
+    notes_repo = NotesRepository(connection)
+    notes_repo.add(
+        "Sabato Angelo è in ferie",
+        parse_note_metadata("Sabato Angelo è in ferie", today=TODAY),
+    )
+    memory_repo = OperationalMemoryRepository(connection)
+    memory_repo.add(
+        parse_operational_memory("Lorenzo in ferie dal 15 al 21 giugno", today=TODAY)
+    )
+    service = ScheduleService(
+        notes_repo,
+        SchedulesRepository(connection),
+        WifeCalendarRepository(connection),
+        memory_repo,
+        tmp_path,
+    )
+
+    result = service.generate_for_week("2026-06-15", "2026-06-21")
+
+    assert "Orario generato per 2026-06-15 / 2026-06-21." in result.summary
+    assert "Note usate: 1." in result.summary
+    assert "Memorie operative: 1." in result.summary
+    assert f"Avvisi/conflitti: {len(result.warnings)}." in result.summary
+    assert (
+        "PDF allegato: Orario_CarpeEvolution_Tenuta_2026-06-15_2026-06-21.pdf."
+        in result.summary
+    )
 
 
 def test_unknown_memory_is_preserved_but_does_not_break_generation(tmp_path):
@@ -145,9 +184,7 @@ def test_unknown_memory_is_preserved_but_does_not_break_generation(tmp_path):
         parse_operational_memory("Ricordati che c'è una cosa importante", today=TODAY)
     )
 
-    instruction = memories_to_weekly_instruction(
-        [memory], "2026-06-15", "2026-06-21"
-    )
+    instruction = memories_to_weekly_instruction([memory], "2026-06-15", "2026-06-21")
 
     assert instruction.unknown_notes == [
         f"Memoria {memory.id}: c'è una cosa importante"

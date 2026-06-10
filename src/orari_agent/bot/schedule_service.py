@@ -75,7 +75,13 @@ class ScheduleService:
             self.output_dir
             / f"Orario_CarpeEvolution_Tenuta_{week_start}_{week_end}.pdf"
         )
-        export_weekly_schedule_pdf(schedule, pdf_path, week_start_date=week_start)
+        export_weekly_schedule_pdf(
+            schedule,
+            pdf_path,
+            week_start_date=week_start,
+            weekly_notes=[note.raw_text for note in notes],
+            operational_memories=[memory.raw_text for memory in memories],
+        )
         self.schedules_repository.add(
             week_start=week_start,
             week_end=week_end,
@@ -120,9 +126,11 @@ def _build_summary(
     note_count = len(notes)
     memory_count = len(memories)
     warning_count = len(warnings)
+    filename = f"Orario_CarpeEvolution_Tenuta_{week_start}_{week_end}.pdf"
     return (
-        f"Orario generato per la settimana {week_start} - {week_end}. "
-        f"Note usate: {note_count}. "
-        f"Memorie operative applicate: {memory_count}. "
-        f"Avvisi/conflitti: {warning_count}."
+        f"Orario generato per {week_start} / {week_end}.\n"
+        f"Note usate: {note_count}.\n"
+        f"Memorie operative: {memory_count}.\n"
+        f"Avvisi/conflitti: {warning_count}.\n"
+        f"PDF allegato: {filename}."
     )
