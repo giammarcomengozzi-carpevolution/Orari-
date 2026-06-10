@@ -217,7 +217,7 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 
 - Non è stata creata una app grafica completa.
 - L'invio automatico WhatsApp non è implementato: il PDF va condiviso manualmente.
-- L'OCR automatico della tabella moglie è locale e prudente: se la foto o le dipendenze non permettono una lettura sicura, il bot non salva date e chiede di usare `/moglie_importa_m`.
+- L'OCR automatico della tabella moglie è locale e prudente: propone date candidate ma non le salva senza conferma; se la foto o le dipendenze non permettono una lettura sicura, il bot chiede di usare `/moglie_importa_m`.
 - Il parser non è un NLP completo: riconosce pattern ricorrenti e conserva come note non interpretate le frasi non supportate.
 - Non vengono introdotte risorse esterne oltre ad Angelo, Giammarco e Lorenzo.
 
@@ -238,10 +238,11 @@ Il comando manuale non cambia e rimane il metodo più sicuro quando la foto non 
 1. Scrivi `/importa_calendario_moglie`.
 2. Invia la foto della tabella.
 3. Il bot salva sempre la foto ricevuta in `data/imports/`.
-4. Il bot prova una lettura locale della griglia e importa automaticamente solo le date con `M` se la confidenza è alta.
-5. Controlla il risultato con `/moglie_lista M`.
+4. Il bot prova una lettura locale della griglia e mostra solo le date candidate con `M` se la confidenza è alta.
+5. Le date candidate **non vengono salvate subito**: controlla il messaggio e conferma solo se sono corrette con `/conferma_calendario_moglie`.
+6. Dopo la conferma, controlla il risultato con `/moglie_lista M`.
 
-Se la lettura è sicura, il bot risponde con un riepilogo tipo “Calendario moglie letto automaticamente”, il numero di date `M` trovate e le date salvate. Se la confidenza è bassa, **non salva automaticamente nessuna data** e chiede di mandare una foto migliore o usare `/moglie_importa_m`.
+Se la lettura è sicura, il bot risponde con un riepilogo tipo “Calendario moglie letto automaticamente”, il numero di date `M` candidate, la confidenza OCR e l’avviso che non sono ancora salvate. Se la confidenza è bassa, **non salva automaticamente nessuna data** e chiede di mandare una foto migliore o usare `/moglie_importa_m`.
 
 ### Come fare una buona foto
 
@@ -263,7 +264,7 @@ Non vengono usate API esterne a pagamento. Se le dipendenze non sono installate 
 
 ### Debug ultimo import
 
-Il comando amministrativo `/debug_calendario_moglie` mostra l'ultimo riepilogo import: percorso immagine, stato OCR, date candidate/summary e avvisi.
+Il comando amministrativo `/debug_calendario_moglie` mostra l'ultimo riepilogo import: percorso immagine, stato OCR, date candidate/summary e avvisi. Per salvare le candidate dell’ultimo OCR ad alta confidenza usa `/conferma_calendario_moglie`.
 
 ---
 

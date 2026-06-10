@@ -127,6 +127,22 @@ class WifeCalendarRepository:
         self.connection.commit()
         return int(cursor.lastrowid)
 
+    def update_import_record(
+        self,
+        record_id: int,
+        status: str,
+        summary: str,
+        warnings: list[str] | None = None,
+    ) -> None:
+        self.connection.execute(
+            (
+                "UPDATE wife_calendar_imports "
+                "SET status = ?, summary = ?, warnings = ? WHERE id = ?"
+            ),
+            (status, summary, "\n".join(warnings or []), record_id),
+        )
+        self.connection.commit()
+
     def latest_import_record(self) -> WifeCalendarImportRecord | None:
         row = self.connection.execute(
             """

@@ -144,7 +144,9 @@ def test_image_import_handler_saves_image_before_ocr_fallback(wife_repository, t
     assert context.user_data["awaiting_wife_calendar_image"] is False
 
 
-def test_image_handler_saves_extracted_m_dates_high_confidence(monkeypatch, wife_repository, tmp_path):
+def test_image_handler_high_confidence_does_not_save_immediately(
+    monkeypatch, wife_repository, tmp_path
+):
     from orari_agent.wife_calendar_ocr import WifeCalendarOcrResult
 
     def fake_extract(image_path, year=None):
@@ -163,13 +165,65 @@ def test_image_handler_saves_extracted_m_dates_high_confidence(monkeypatch, wife
 
     asyncio.run(commands.wife_calendar_image(make_update(message), context))
 
+    assert wife_repository.list_entries("M") == []
+    assert "Calendario moglie letto automaticamente." in message.replies[0]
+    assert "Date M candidate trovate: 2." in message.replies[0]
+    assert "Confidenza OCR: 90%." in message.replies[0]
+    assert "non ho ancora salvato" in message.replies[0]
+    assert "/conferma_calendario_moglie" in message.replies[0]
+    record = wife_repository.latest_import_record()
+    assert record is not None
+    assert record.status == "ocr_pending_confirmation"
+    assert "Date M candidate: 2026-01-03, 2026-09-10" in record.summary
+    assert context.user_data["awaiting_wife_calendar_image"] is False
+
+
+def test_conferma_calendario_moglie_saves_last_candidate_dates(
+    wife_repository, tmp_path
+):
+    wife_repository.add_import_record(
+        source="telegram_image",
+        status="ocr_pending_confirmation",
+        summary=(
+            "Calendario moglie letto automaticamente, in attesa di conferma.\n"
+            "Date M candidate: 2026-01-03, 2026-09-10\n"
+            "Confidenza OCR: 90%."
+        ),
+        warnings=[],
+        image_path=str(tmp_path / "imports" / "moglie.jpg"),
+    )
+    message = DummyMessage()
+    context = make_context(wife_repository, tmp_path)
+
+    asyncio.run(commands.conferma_calendario_moglie(make_update(message), context))
+
     entries = wife_repository.list_entries("M")
     assert [entry.date for entry in entries] == ["2026-01-03", "2026-09-10"]
-    assert entries[0].source == "telegram_image_ocr"
-    assert "Calendario moglie letto automaticamente." in message.replies[0]
-    assert "Date M trovate: 2." in message.replies[0]
-    assert "Controlla con /moglie_lista M." in message.replies[0]
-    assert context.user_data["awaiting_wife_calendar_image"] is False
+    assert entries[0].source == "telegram_image_ocr_confirmed"
+    assert "Calendario moglie confermato." in message.replies[0]
+    assert "Date M salvate: 2." in message.replies[0]
+    record = wife_repository.latest_import_record()
+    assert record is not None
+    assert record.status == "ocr_confirmed"
+
+
+def test_conferma_calendario_moglie_without_candidates_does_nothing(
+    wife_repository, tmp_path
+):
+    wife_repository.add_import_record(
+        source="telegram_image",
+        status="ocr_low_confidence",
+        summary="Date M candidate: nessuna",
+        warnings=["Nessuna cella con M rilevata automaticamente."],
+        image_path=str(tmp_path / "imports" / "moglie.jpg"),
+    )
+    message = DummyMessage()
+    context = make_context(wife_repository, tmp_path)
+
+    asyncio.run(commands.conferma_calendario_moglie(make_update(message), context))
+
+    assert wife_repository.list_entries("M") == []
+    assert "Nessuna data M candidata da confermare" in message.replies[0]
 
 
 def test_image_handler_low_confidence_does_not_save(monkeypatch, wife_repository, tmp_path):
@@ -218,8 +272,8 @@ def test_image_handler_ocr_unavailable_fallback_does_not_crash(wife_repository, 
 def test_debug_calendario_moglie_shows_last_import(wife_repository, tmp_path):
     wife_repository.add_import_record(
         source="telegram_image",
-        status="ocr_low_confidence",
-        summary="linee verticali=0",
+        status="ocr_pending_confirmation",
+        summary="Date M candidate: 2026-01-03, 2026-09-10\nlinee verticali=33",
         warnings=["foto storta"],
         image_path=str(tmp_path / "imports" / "moglie.jpg"),
     )
@@ -229,5 +283,6 @@ def test_debug_calendario_moglie_shows_last_import(wife_repository, tmp_path):
     asyncio.run(commands.debug_calendario_moglie(make_update(message), context))
 
     assert "Debug ultimo import calendario moglie:" in message.replies[0]
-    assert "OCR status: ocr_low_confidence" in message.replies[0]
+    assert "OCR status: ocr_pending_confirmation" in message.replies[0]
+    assert "2026-01-03, 2026-09-10" in message.replies[0]
     assert "foto storta" in message.replies[0]
