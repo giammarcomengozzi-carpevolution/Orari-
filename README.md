@@ -209,20 +209,62 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 - `src/orari_agent/validator.py` — controlli su ore, giorni, coperture e conflitti.
 - `src/orari_agent/formatter.py` — output italiano leggibile.
 - `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale separata dal motore di scheduling.
-- `src/orari_agent/wife_calendar.py` — predisposizione per calendario persistente della moglie di Giammarco.
+- `src/orari_agent/wife_calendar.py` — regole del calendario persistente della moglie di Giammarco.
+- `src/orari_agent/wife_calendar_ocr.py` — lettura locale, opzionale e prudente della foto calendario moglie.
 - `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale e dei file YAML/JSON settimanali.
 
 ## Limiti intenzionali
 
 - Non è stata creata una app grafica completa.
 - L'invio automatico WhatsApp non è implementato: il PDF va condiviso manualmente.
-- L'OCR automatico della tabella moglie non è ancora implementato: il bot salva la foto e usa l'import semi-manuale delle sole date `M`.
+- L'OCR automatico della tabella moglie è locale e prudente: propone date candidate ma non le salva senza conferma; se la foto o le dipendenze non permettono una lettura sicura, il bot chiede di usare `/moglie_importa_m`.
 - Il parser non è un NLP completo: riconosce pattern ricorrenti e conserva come note non interpretate le frasi non supportate.
 - Non vengono introdotte risorse esterne oltre ad Angelo, Giammarco e Lorenzo.
 
 ## Nota sul calendario della moglie di Giammarco
 
-L'OCR e la lettura immagini non sono implementati. È però presente un archivio JSON persistente e un'interfaccia dedicata. In questa fase solo il codice `M` è un vincolo: Giammarco non può aprire il lago alle 07:30 nella data interessata. I codici `P`, `I`, `F`, colori o altre marcature non vincolano l’orario.
+Il calendario moglie può essere inserito manualmente oppure tramite foto dal bot Telegram. La regola operativa resta una sola: **viene importato e applicato solo il codice `M`**. Se una data contiene `M`, Giammarco non può aprire il lago alle 07:30 in quella data. I codici `P`, `I`, `F`, colori, celle rosse, celle vuote o altre marcature vengono ignorati.
+
+### Import manuale sempre disponibile
+
+Il comando manuale non cambia e rimane il metodo più sicuro quando la foto non è leggibile:
+
+```text
+/moglie_importa_m 2026-09-03,2026-09-10
+```
+
+### Import automatico da foto Telegram
+
+1. Scrivi `/importa_calendario_moglie`.
+2. Invia la foto della tabella.
+3. Il bot salva sempre la foto ricevuta in `data/imports/`.
+4. Il bot prova una lettura locale della griglia e mostra solo le date candidate con `M` se la confidenza è alta.
+5. Le date candidate **non vengono salvate subito**: controlla il messaggio e conferma solo se sono corrette con `/conferma_calendario_moglie`.
+6. Dopo la conferma, controlla il risultato con `/moglie_lista M`.
+
+Se la lettura è sicura, il bot risponde con un riepilogo tipo “Calendario moglie letto automaticamente”, il numero di date `M` candidate, la confidenza OCR e l’avviso che non sono ancora salvate. Se la confidenza è bassa, **non salva automaticamente nessuna data** e chiede di mandare una foto migliore o usare `/moglie_importa_m`.
+
+### Come fare una buona foto
+
+- Tieni il foglio il più possibile **dritto**, non ruotato e non inclinato.
+- Inquadra tutta la tabella, compresi intestazioni, righe dei mesi e colonne dei giorni.
+- Usa buona luce, evita ombre, riflessi e sfocatura.
+- Avvicinati abbastanza perché le lettere nelle celle siano leggibili.
+- Evita pieghe o prospettive molto storte: una foto frontale aumenta molto la confidenza.
+
+### Dipendenze OCR locali
+
+L'avvio del bot non richiede OCR obbligatorio. Il modulo prova a usare dipendenze locali se presenti:
+
+- **Pillow** per leggere formati comuni come JPG/PNG;
+- **OpenCV** per eventuale preprocessing quando disponibile;
+- **pytesseract** e il binario `tesseract` come aiuto opzionale alla lettura testuale.
+
+Non vengono usate API esterne a pagamento. Se le dipendenze non sono installate o la foto non è abbastanza chiara, il bot fallisce in modo controllato, salva l'immagine, spiega il problema e lascia disponibile l'import manuale.
+
+### Debug ultimo import
+
+Il comando amministrativo `/debug_calendario_moglie` mostra l'ultimo riepilogo import: percorso immagine, stato OCR, date candidate/summary e avvisi. Per salvare le candidate dell’ultimo OCR ad alta confidenza usa `/conferma_calendario_moglie`.
 
 ---
 

@@ -23,6 +23,7 @@ from orari_agent.storage.week_parser import (
     parse_week_request,
 )
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
+from orari_agent.wife_calendar_ocr import WifeCalendarOcrResult, extract_m_dates_from_image
 
 from .note_messages import saved_note_message
 from .schedule_service import ScheduleService
@@ -83,7 +84,9 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/memoria_reset confermo — archivia tutte le memorie\n"
         "/moglie_set YYYY-MM-DD M — salva un codice del calendario moglie\n"
         "/moglie_importa_m date1,date2,... — importa più date M\n"
-        "/importa_calendario_moglie — salva una foto calendario per import semi-manuale\n"
+        "/importa_calendario_moglie — legge automaticamente una foto calendario e propone solo M\n"
+        "/conferma_calendario_moglie — conferma l’ultimo OCR e salva le date M\n"
+        "/debug_calendario_moglie — mostra l’ultimo riepilogo import/OCR\n"
         "/moglie_lista — mostra i codici salvati\n"
         "/moglie_lista M — mostra solo le date M\n"
         "/moglie_cancella YYYY-MM-DD — elimina un codice salvato\n"
@@ -453,6 +456,78 @@ async def wife_calendar_image(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _save_wife_calendar_image(update, context, wife_repository)
 
 
+async def conferma_calendario_moglie(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    record = wife_repository.latest_import_record()
+    if record is None:
+        await update.effective_message.reply_text(
+            "Nessun OCR calendario moglie da confermare."
+        )
+        return
+    candidate_dates = _candidate_dates_from_import_summary(record.summary)
+    if record.status != "ocr_pending_confirmation" or not candidate_dates:
+        await update.effective_message.reply_text(
+            "Nessuna data M candidata da confermare. "
+            "Usa /importa_calendario_moglie o /moglie_importa_m."
+        )
+        return
+    inserted, updated = wife_repository.bulk_upsert_code(
+        candidate_dates, "M", source="telegram_image_ocr_confirmed"
+    )
+    confirmation_summary = (
+        f"{record.summary}\n"
+        f"Confermato e salvato: {len(candidate_dates)} date M. "
+        f"Inserite: {inserted}. Aggiornate: {updated}."
+    )
+    wife_repository.update_import_record(
+        record.id,
+        status="ocr_confirmed",
+        summary=confirmation_summary,
+        warnings=record.warnings.splitlines(),
+    )
+    await update.effective_message.reply_text(
+        "Calendario moglie confermato.\n"
+        f"Date M salvate: {len(candidate_dates)}.\n"
+        f"Date salvate: {', '.join(candidate_dates)}.\n"
+        "Controlla con /moglie_lista M."
+    )
+
+
+async def debug_calendario_moglie(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    record = wife_repository.latest_import_record()
+    if record is None:
+        await update.effective_message.reply_text(
+            "Nessun import calendario moglie registrato."
+        )
+        return
+    lines = [
+        "Debug ultimo import calendario moglie:",
+        f"ID: {record.id}",
+        f"Creato: {record.created_at}",
+        f"Image path: {record.image_path or 'non disponibile'}",
+        f"OCR status: {record.status}",
+        f"Summary: {record.summary}",
+        "Warnings:",
+    ]
+    lines.extend(
+        f"• {warning}" for warning in record.warnings.splitlines() if warning.strip()
+    )
+    if lines[-1] == "Warnings:":
+        lines.append("• nessun warning")
+    await update.effective_message.reply_text("\n".join(lines))
+
+
 async def moglie_cancella(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     allowed_user_id, _, _, wife_repository = _deps(context)
     if not is_allowed_user(update, allowed_user_id):
@@ -604,22 +679,76 @@ async def _save_wife_calendar_image(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     image_path = import_dir / f"moglie_{timestamp}_{uuid4().hex[:8]}.jpg"
     await telegram_file.download_to_drive(custom_path=image_path)
-    warning = (
-        "OCR automatico non abilitato: serve elenco date M con /moglie_importa_m."
+
+    result = extract_m_dates_from_image(image_path, year=datetime.now().year)
+    context.user_data["awaiting_wife_calendar_image"] = False
+
+    if result.is_high_confidence and result.imported_dates:
+        summary = _ocr_pending_summary(result)
+        wife_repository.add_import_record(
+            source="telegram_image",
+            image_path=str(image_path),
+            status="ocr_pending_confirmation",
+            summary=summary,
+            warnings=result.warnings,
+        )
+        await update.effective_message.reply_text(
+            "Calendario moglie letto automaticamente.\n"
+            f"Date M candidate trovate: {len(result.imported_dates)}.\n"
+            f"Date trovate: {', '.join(result.imported_dates)}.\n"
+            f"Confidenza OCR: {result.confidence:.0%}.\n"
+            "Attenzione: non ho ancora salvato queste date.\n"
+            "Se sono corrette, conferma con /conferma_calendario_moglie."
+        )
+        return
+
+    status = "ocr_low_confidence" if result.confidence > 0 else "ocr_failed"
+    warnings = result.warnings or [
+        "Lettura OCR non abbastanza sicura per import automatico."
+    ]
+    summary = (
+        f"{result.debug_summary}\n"
+        "Date M candidate: "
+        f"{', '.join(result.imported_dates) if result.imported_dates else 'nessuna'}\n"
+        f"Dipendenze OCR: {result.ocr_status}"
     )
     wife_repository.add_import_record(
         source="telegram_image",
         image_path=str(image_path),
-        status="saved_needs_manual_dates",
-        summary="Foto calendario moglie ricevuta e salvata.",
-        warnings=[warning],
+        status=status,
+        summary=summary,
+        warnings=warnings,
     )
-    context.user_data["awaiting_wife_calendar_image"] = False
     await update.effective_message.reply_text(
-        "Foto calendario ricevuta e salvata.\n"
-        "In questa versione non leggo ancora automaticamente la tabella con sicurezza.\n"
-        "Mandami l’elenco delle date M con /moglie_importa_m."
+        "Ho ricevuto la foto ma non sono abbastanza sicuro della lettura.\n"
+        "Non ho salvato automaticamente le date.\n"
+        "Puoi mandarmi una foto più dritta e nitida oppure usare /moglie_importa_m."
+        f"\nDettaglio OCR: {warnings[0]}"
     )
+
+
+def _ocr_pending_summary(result: WifeCalendarOcrResult) -> str:
+    dates = result.imported_dates
+    return (
+        "Calendario moglie letto automaticamente, in attesa di conferma.\n"
+        f"Date M candidate: {', '.join(dates)}\n"
+        f"Date M candidate trovate: {len(dates)}.\n"
+        f"Confidenza OCR: {result.confidence:.0%}.\n"
+        f"Debug: {result.debug_summary}\n"
+        f"Dipendenze OCR: {result.ocr_status}"
+    )
+
+
+def _candidate_dates_from_import_summary(summary: str) -> list[str]:
+    for line in summary.splitlines():
+        if line.startswith("Date M candidate:"):
+            payload = line.split(":", 1)[1]
+            return [
+                token.strip()
+                for token in payload.split(",")
+                if _is_iso_date(token.strip())
+            ]
+    return []
 
 
 def _is_iso_date(value: str) -> bool:
