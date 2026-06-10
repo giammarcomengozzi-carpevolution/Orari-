@@ -290,6 +290,7 @@ def _build_day(
     }
 
     _add_closure_and_absence_notes(day_schedule, unavailable)
+    _add_time_range_absence_notes(day_schedule, instruction)
     _add_giammarco_external_work(day_schedule, instruction)
     _assign_lorenzo_default_lake(day_schedule, lorenzo_days, instruction)
     _assign_forced_coverage(day_schedule, instruction, wife_codes, week_dates)
@@ -311,6 +312,18 @@ def _add_closure_and_absence_notes(
         day_schedule.notes.append(
             f"{person} non disponibile tutto il giorno per istruzione settimanale"
         )
+
+
+def _add_time_range_absence_notes(
+    day_schedule: DaySchedule, instruction: WeeklyInstruction
+) -> None:
+    for absences in instruction.unavailable_ranges_by_person.values():
+        for absence in absences:
+            if absence.day != day_schedule.day:
+                continue
+            day_schedule.notes.append(
+                f"{absence.person} non disponibile {absence.start}-{absence.end} ({absence.label})"
+            )
 
 
 def _add_giammarco_external_work(

@@ -55,10 +55,18 @@ CONSTRAINT_KEYWORDS = {
     "assente": "assenza",
     "ferie": "assenza",
     "permesso": "assenza",
+    "uscire": "assenza_oraria",
+    "esce": "assenza_oraria",
     "deve": "vincolo",
+    "negozio": "copertura_negozio",
+    "lago": "copertura_lago",
     "prenotazioni": "carico_lago",
+    "pieno": "carico_lago",
+    "doppia copertura": "carico_lago",
     "fatture": "amministrazione",
     "commercialista": "impegno_esterno",
+    "banca": "impegno_esterno",
+    "esterna": "impegno_esterno",
 }
 
 

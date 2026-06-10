@@ -160,19 +160,24 @@ Il motore prova a mantenere sempre almeno una persona al lago e una persona in n
 
 ## Istruzioni testuali supportate
 
-Il parser leggero riconosce frasi italiane o inglesi con giorno, persona e intenzione. Esempi:
+Il parser leggero riconosce frasi italiane o inglesi con giorno, persona e intenzione. È deterministico, non usa API AI esterne e conserva sempre il testo originale della nota. Le istruzioni possono essere passate in un unico testo, separate da punto o a capo.
 
-- `Giovedì Giammarco deve stare in negozio.`
-- `Giammarco deve stare due giorni in negozio questa settimana.`
-- `Martedì Lorenzo deve aprire il lago.`
-- `Domenica Lorenzo è assente.`
-- `Sabato Angelo è in ferie.`
-- `Venerdì Giammarco deve stare al lago.`
-- `Giovedì Giammarco è dal commercialista.`
-- `Venerdì mattina Giammarco è in banca.`
-- `Domenica il lago ha molte prenotazioni.`
+Pattern operativi ora supportati:
 
-Le istruzioni possono essere passate in un unico testo, separate da punto o a capo.
+- **Assenza per giornata intera**: `Sabato Angelo non c’è`, `Venerdì Lorenzo è assente`, `Giovedì io non ci sono`, `Martedì Gianmarco non c’è tutto il giorno`. La persona viene esclusa da coperture lago/negozio per tutto il giorno.
+- **Assenza o uscita su fascia oraria**: `Angelo non c’è martedì mattina`, `Lorenzo non c’è sabato pomeriggio`, `Sabato Lorenzo deve uscire alle 15`. Mattina/pomeriggio usano le fasce dell’attività quando l’attività è chiara; le uscite `alle HH` bloccano la persona da quell’ora in poi.
+- **Impegni esterni di Giammarco**: `Giovedì io sono dal commercialista dalle 10 alle 12`, `Venerdì Gianmarco in banca dalle 9 alle 11`, `Martedì io ho appuntamento dal commercialista alle 10`, `Mercoledì Gianmarco attività aziendale esterna tutto il giorno`. L’impegno compare come lavoro aziendale/esterno e impedisce coperture fisse sovrapposte.
+- **Copertura forzata negozio**: `Giovedì Gianmarco in negozio tutto il giorno per fatture`, `Sabato Angelo deve stare in negozio il pomeriggio`, `Martedì Angelo apre il negozio`, `Venerdì Gianmarco negozio mattina`. `apre il negozio` significa 09:00-12:30; `chiude il negozio` significa 15:30-19:30.
+- **Copertura forzata lago**: `Martedì Lorenzo deve aprire il lago`, `Domenica Gianmarco apre il lago`, `Sabato Lorenzo chiude il lago`, `Venerdì Gianmarco lago pomeriggio`, `Domenica serve Angelo al lago la mattina`. `apre il lago` significa 07:30-14:00; `chiude il lago` significa 14:00-18:30.
+- **Carico alto al lago / copertura extra**: `Domenica al lago ci sono molte prenotazioni`, `Sabato lago pieno`, `Domenica serve doppia copertura al lago`. Il PDF mostra una nota di attenzione e il motore prova ad aggiungere Giammarco come supporto extra se è disponibile e non bloccato dal calendario moglie.
+- **Regole speciali Lorenzo**: `Martedì Lorenzo deve lavorare`, `Martedì Lorenzo deve aprire il lago`, `Domenica Lorenzo non c’è`, `Sabato Lorenzo deve uscire alle 15`. Il motore prova a mantenere 40 ore, 5 giorni e 8 ore/giorno; se non ci riesce aggiunge avvisi chiari.
+- **Calendario moglie codice M**: se una nota forza `Gianmarco apre il lago` in una data con codice `M`, il motore non lo assegna all’apertura 07:30 e genera un conflitto esplicito.
+
+Esempio CLI veloce:
+
+```bash
+PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 10 alle 12. Domenica al lago ci sono molte prenotazioni."
+```
 
 ## Esempi di comportamento
 
@@ -256,6 +261,20 @@ Venerdì io sono dal commercialista alle 10.
 ```
 
 Se il messaggio inizia con `Genera orario`, il bot genera il PDF invece di salvarlo come nota.
+
+Quando una nota viene salvata, il bot risponde con ID nota, settimana interpretata, data se riconosciuta, persona, luogo, tipo vincolo e una sintesi dell’interpretazione automatica. Se una frase non è supportata, la nota resta comunque salvata e viene riportata nel PDF come avviso/nota non interpretata.
+
+Esempio di risposta:
+
+```text
+Nota salvata con ID 12.
+Settimana: 2026-06-15 - 2026-06-21.
+Data interpretata: 2026-06-18.
+Persona: Giammarco Mengozzi.
+Luogo: CarpeEvolution Store.
+Tipo vincolo: copertura_negozio.
+Interpretazione: Giammarco Mengozzi forzato su negozio Giovedì 09:00-12:30. Giammarco Mengozzi forzato su negozio Giovedì 15:30-19:30.
+```
 
 ## Creare il bot con BotFather
 
@@ -446,3 +465,22 @@ Per il test completo con Telegram:
 8. prova `/moglie_set 2026-06-14 M`, poi `/moglie_lista`, poi `/moglie_cancella 2026-06-14`;
 9. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
 10. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
+
+## Test automatici principali
+
+Per eseguire tutta la suite:
+
+```bash
+pytest -q
+```
+
+I test coprono anche le frasi operative più importanti:
+
+- `Giovedì Gianmarco in negozio tutto il giorno per fatture` forza la copertura negozio mattina e pomeriggio.
+- `Martedì Lorenzo deve aprire il lago` forza Lorenzo sull’apertura lago del martedì.
+- `Sabato Lorenzo deve uscire alle 15` blocca Lorenzo dopo le 15:00 e produce gli avvisi ore se necessari.
+- `Giovedì io sono dal commercialista dalle 10 alle 12` crea lavoro esterno di Giammarco e impedisce coperture sovrapposte.
+- `Domenica al lago ci sono molte prenotazioni` aggiunge nota di carico alto e prova una copertura extra.
+- Il codice calendario moglie `M` blocca Gianmarco dall’apertura lago delle 07:30.
+- Le note sconosciute sono preservate come avvisi del PDF.
+- La risposta `/nota` include la sintesi dell’interpretazione automatica.
