@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS wife_calendar (
 
 CREATE INDEX IF NOT EXISTS idx_wife_calendar_date
 ON wife_calendar(date);
+
+CREATE TABLE IF NOT EXISTS wife_calendar_imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    image_path TEXT,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    warnings TEXT NOT NULL
+);
 """
 
 

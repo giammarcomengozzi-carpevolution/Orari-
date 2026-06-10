@@ -201,7 +201,7 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 
 - Non è stata creata una app grafica completa.
 - L'invio automatico WhatsApp non è implementato: il PDF va condiviso manualmente.
-- L'OCR e la lettura immagini non sono ancora implementati.
+- L'OCR automatico della tabella moglie non è ancora implementato: il bot salva la foto e usa l'import semi-manuale delle sole date `M`.
 - Il parser non è un NLP completo: riconosce pattern ricorrenti e conserva come note non interpretate le frasi non supportate.
 - Non vengono introdotte risorse esterne oltre ad Angelo, Giammarco e Lorenzo.
 
@@ -244,8 +244,15 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - `/cancella_tutte fra 2 settimane confermo` — archivia tutte le note attive della settimana dopo la prossima.
 - `/moglie_set YYYY-MM-DD M` — salva il codice `M` per quella data; blocca Giammarco dall’apertura lago alle 07:30.
 - `/moglie_set YYYY-MM-DD P` — salva il codice `P`; non ha effetto bloccante.
+- `/moglie_importa_m 2026-09-03,2026-09-10` — importa in blocco più date con codice `M`.
+- `/moglie_importa_m` seguito da una data per riga — importa lo stesso elenco in formato multilinea.
+- `/importa_calendario_moglie` — avvia la ricezione della foto della tabella orari moglie e salva l’immagine in `data/imports/`.
+- foto con caption `/importa_calendario_moglie` — salva direttamente l’immagine senza passaggio intermedio.
 - `/moglie_lista` — mostra i codici calendario moglie salvati.
+- `/moglie_lista M` — mostra solo le date con codice `M`.
 - `/moglie_cancella YYYY-MM-DD` — elimina il codice salvato per quella data.
+- `/moglie_reset` — chiede conferma prima di svuotare il calendario moglie.
+- `/moglie_reset confermo` — svuota tutte le righe del calendario moglie.
 - `/genera` — genera il PDF della settimana prossima.
 - `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata.
 - `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
@@ -399,6 +406,7 @@ All'avvio il bot crea automaticamente le tabelle:
 - `notes` — note attive/usate/cancellate con testo originale e metadati interpretati;
 - `generated_schedules` — cronologia PDF generati, riepilogo e avvisi;
 - `wife_calendar` — tabella del calendario moglie compilabile da Telegram; solo il codice `M` ha effetto operativo, mentre `P`, `I`, `F` e colori/altre marcature sono ignorati.
+- `wife_calendar_imports` — registro degli import da immagine, con percorso file salvato, stato, riepilogo e avvisi per futuri miglioramenti OCR.
 
 
 ## Interpretazione settimane nel bot
@@ -415,7 +423,34 @@ Senza indicazione di settimana, i comandi operativi usano la prossima settimana.
 
 ## Calendario moglie di Giammarco
 
-La lettura automatica da immagine/OCR non è inclusa in questa fase. I codici si salvano manualmente con `/moglie_set`.
+La regola operativa è volutamente minima: conta solo il codice `M`. I codici si possono salvare uno alla volta con `/moglie_set` oppure in blocco con `/moglie_importa_m`.
+
+Esempio import in una riga:
+
+```text
+/moglie_importa_m 2026-09-03,2026-09-10,2026-09-17
+```
+
+Esempio import con una data per riga:
+
+```text
+/moglie_importa_m
+2026-09-03
+2026-09-10
+2026-09-17
+```
+
+Il bot accetta solo date ISO `YYYY-MM-DD`, ignora le date non valide e le riporta nella risposta. Se una data era già presente, viene salvato un nuovo valore aggiornato senza duplicare l’effetto operativo.
+
+Per caricare più rapidamente una tabella da immagine puoi usare:
+
+```text
+/importa_calendario_moglie
+```
+
+Il bot risponde `Mandami ora la foto della tabella orari di tua moglie.`; quando invii la foto, la salva in `data/imports/` e registra l’operazione nel database. Puoi anche inviare direttamente la foto con caption `/importa_calendario_moglie`.
+
+Limite attuale: in questa versione l’OCR automatico della griglia non è abilitato perché potrebbe leggere male lettere e giorni. Dopo aver salvato la foto, il bot chiede di mandare l’elenco delle sole date `M` con `/moglie_importa_m`. L’architettura mantiene immagine, stato e avvisi per aggiungere in futuro un OCR locale e sicuro senza cambiare la regola operativa.
 
 Regola operativa attiva:
 
@@ -463,8 +498,12 @@ Per il test completo con Telegram:
 6. prova `/cancella ID` usando un ID reale, poi riprova con lo stesso ID per verificare il messaggio “non trovata”;
 7. crea due note di prova e usa `/cancella_tutte confermo` oppure `/cancella_tutte questa settimana confermo`; senza `confermo` il bot deve rispondere `Per sicurezza, ripeti il comando aggiungendo confermo.`;
 8. prova `/moglie_set 2026-06-14 M`, poi `/moglie_lista`, poi `/moglie_cancella 2026-06-14`;
-9. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
-10. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
+9. prova `/moglie_importa_m 2026-09-03,2026-09-10`, poi `/moglie_lista M`;
+10. prova `/moglie_reset`: senza conferma deve rispondere `Per sicurezza, ripeti con: /moglie_reset confermo`;
+11. prova `/moglie_reset confermo` e verifica che `/moglie_lista` non mostri più righe;
+12. prova `/importa_calendario_moglie`, invia una foto e verifica che il bot la salvi in `data/imports/` chiedendo poi l’elenco date con `/moglie_importa_m`;
+13. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
+14. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
 
 ## Test automatici principali
 
