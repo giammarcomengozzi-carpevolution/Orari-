@@ -70,6 +70,9 @@ def build_application(config: BotConfig) -> Application:
     )
     application.add_handler(CommandHandler("moglie_reset", commands.moglie_reset))
     application.add_handler(CommandHandler("moglie_cancella", commands.moglie_cancella))
+    application.add_handler(
+        CommandHandler("debug_calendario_moglie", commands.debug_calendario_moglie)
+    )
     application.add_handler(CommandHandler("genera", commands.genera))
     application.add_handler(CommandHandler("reset_settimana", commands.reset_settimana))
     application.add_handler(MessageHandler(filters.PHOTO, commands.wife_calendar_image))

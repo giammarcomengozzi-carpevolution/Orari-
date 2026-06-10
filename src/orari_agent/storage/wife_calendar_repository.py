@@ -15,6 +15,17 @@ class WifeCalendarEntry:
     created_at: str
 
 
+@dataclass(frozen=True)
+class WifeCalendarImportRecord:
+    id: int
+    created_at: str
+    source: str
+    image_path: str | None
+    status: str
+    summary: str
+    warnings: str
+
+
 class WifeCalendarRepository:
     """Tabella dei codici giornalieri: per ora conta operativamente solo `M`."""
 
@@ -115,6 +126,27 @@ class WifeCalendarRepository:
         )
         self.connection.commit()
         return int(cursor.lastrowid)
+
+    def latest_import_record(self) -> WifeCalendarImportRecord | None:
+        row = self.connection.execute(
+            """
+            SELECT id, created_at, source, image_path, status, summary, warnings
+            FROM wife_calendar_imports
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return WifeCalendarImportRecord(
+            id=int(row["id"]),
+            created_at=str(row["created_at"]),
+            source=str(row["source"]),
+            image_path=row["image_path"],
+            status=str(row["status"]),
+            summary=str(row["summary"]),
+            warnings=str(row["warnings"]),
+        )
 
     def load_codes(self) -> dict[str, str]:
         return {entry.date: entry.code for entry in self.list_entries()}
