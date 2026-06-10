@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from html import escape
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -17,6 +16,7 @@ from orari_agent.storage.week_parser import (
 )
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
 
+from .note_messages import saved_note_message
 from .schedule_service import ScheduleService
 from .security import is_allowed_user, reject_unauthorized
 
@@ -86,7 +86,7 @@ async def nota(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     note = notes_repository.add(text, parse_note_metadata(text))
     await update.effective_message.reply_text(
-        _saved_note_message(note), parse_mode=ParseMode.HTML
+        saved_note_message(note), parse_mode=ParseMode.HTML
     )
 
 
@@ -257,7 +257,7 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     note = notes_repository.add(text, parse_note_metadata(text))
     await update.effective_message.reply_text(
-        _saved_note_message(note), parse_mode=ParseMode.HTML
+        saved_note_message(note), parse_mode=ParseMode.HTML
     )
 
 
@@ -288,16 +288,6 @@ def _warnings_text(warnings: list[str]) -> str:
     if len(warnings) > 8:
         preview += f"\n• ... altri {len(warnings) - 8} avvisi nel PDF/registro."
     return "Avvisi/conflitti:\n" + preview
-
-
-def _saved_note_message(note) -> str:
-    pieces = [
-        f"Nota salvata con ID <b>{note.id}</b>.",
-        f"Settimana: {escape(note.target_week_start)} - {escape(note.target_week_end)}.",
-    ]
-    if note.interpreted_date:
-        pieces.append(f"Data interpretata: {escape(note.interpreted_date)}.")
-    return "\n".join(pieces)
 
 
 def _is_iso_date(value: str) -> bool:

@@ -379,3 +379,110 @@ def test_structured_weekly_planning_json_supports_manual_coverage(tmp_path):
         and assignment.end == "19:30"
         for assignment in saturday.assignments()
     )
+
+
+def test_note_forces_giammarco_full_day_shop_coverage():
+    schedule = generate_weekly_schedule(
+        "Giovedì Gianmarco in negozio tutto il giorno per fatture"
+    )
+    thursday = next(day for day in schedule.days if day.day == "Giovedì")
+
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "shop"
+        and assignment.start == "09:00"
+        and assignment.end == "12:30"
+        for assignment in thursday.assignments()
+    )
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "shop"
+        and assignment.start == "15:30"
+        and assignment.end == "19:30"
+        for assignment in thursday.assignments()
+    )
+
+
+def test_note_forces_lorenzo_tuesday_lake_opening():
+    schedule = generate_weekly_schedule("Martedì Lorenzo deve aprire il lago")
+    tuesday = next(day for day in schedule.days if day.day == "Martedì")
+
+    assert any(
+        assignment.person == "Lorenzo Sansavini"
+        and assignment.activity == "lake"
+        and assignment.start == "07:30"
+        and assignment.end == "14:00"
+        for assignment in tuesday.assignments()
+    )
+
+
+def test_note_lorenzo_leaves_at_15_blocks_later_assignments():
+    schedule = generate_weekly_schedule("Sabato Lorenzo deve uscire alle 15")
+    saturday = next(day for day in schedule.days if day.day == "Sabato")
+
+    assert not any(
+        assignment.person == "Lorenzo Sansavini"
+        and assignment.start < "23:59"
+        and "15:00" < assignment.end
+        for assignment in saturday.assignments()
+    )
+    assert any("15:00-23:59" in note for note in saturday.notes)
+
+
+def test_note_giammarco_commercialista_time_range_blocks_overlap():
+    schedule = generate_weekly_schedule(
+        "Giovedì io sono dal commercialista dalle 10 alle 12"
+    )
+    thursday = next(day for day in schedule.days if day.day == "Giovedì")
+
+    assert any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "company_work"
+        and assignment.start == "10:00"
+        and assignment.end == "12:00"
+        for assignment in thursday.company_work
+    )
+    assert not any(
+        assignment.person == GIAMMARCO
+        and assignment.activity in {"lake", "shop"}
+        and assignment.start < "12:00"
+        and "10:00" < assignment.end
+        for assignment in thursday.assignments()
+    )
+
+
+def test_note_high_lake_workload_adds_note_and_extra_coverage():
+    schedule = generate_weekly_schedule("Domenica al lago ci sono molte prenotazioni")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert any("Molte prenotazioni" in note for note in sunday.notes)
+    assert any(
+        assignment.person == GIAMMARCO and assignment.activity == "lake"
+        for assignment in sunday.assignments()
+    )
+
+
+def test_forced_giammarco_lake_opening_is_blocked_by_wife_calendar_m():
+    schedule = generate_weekly_schedule(
+        "Domenica Gianmarco apre il lago",
+        week_start_date="2026-06-08",
+        wife_calendar_codes={"2026-06-14": "M"},
+    )
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert any("calendario moglie c’è M" in warning for warning in sunday.warnings)
+    assert not any(
+        assignment.person == GIAMMARCO
+        and assignment.activity == "lake"
+        and assignment.start == "07:30"
+        for assignment in sunday.assignments()
+    )
+
+
+def test_unknown_note_is_preserved_as_pdf_warning():
+    schedule = generate_weekly_schedule("Ricordati di comprare il caffè")
+
+    assert any(
+        "Ricordati di comprare il caffè" in warning
+        for warning in schedule.global_warnings
+    )

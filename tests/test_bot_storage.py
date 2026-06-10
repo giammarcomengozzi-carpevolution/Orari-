@@ -111,3 +111,22 @@ def test_parse_week_request_tra_due_settimane_variant():
 
     assert start.isoformat() == "2026-06-22"
     assert end.isoformat() == "2026-06-28"
+
+
+def test_saved_note_message_includes_interpretation_summary(tmp_path):
+    from orari_agent.bot.note_messages import saved_note_message
+
+    connection = connect(tmp_path / "orari_bot.sqlite3")
+    repository = NotesRepository(connection)
+    text = "Giovedì Gianmarco in negozio tutto il giorno per fatture"
+    note = repository.add(text, parse_note_metadata(text, today=date(2026, 6, 10)))
+
+    message = saved_note_message(note)
+
+    assert "Nota salvata con ID" in message
+    assert "Settimana: 2026-06-15 - 2026-06-21" in message
+    assert "Data interpretata: 2026-06-18" in message
+    assert "Persona: Giammarco Mengozzi" in message
+    assert "Luogo: CarpeEvolution Store" in message
+    assert "Interpretazione:" in message
+    assert "Giammarco Mengozzi forzato su negozio Giovedì" in message

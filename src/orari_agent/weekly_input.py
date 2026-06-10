@@ -8,6 +8,7 @@ sottoinsieme YAML/JSON pensato per compilare ogni settimana un file guidato.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,17 @@ class ExternalWorkRequest:
 
 
 @dataclass(frozen=True)
+class TimeRangeUnavailability:
+    """Indisponibilità personale su una fascia oraria precisa."""
+
+    day: str
+    person: str
+    start: str
+    end: str
+    label: str
+
+
+@dataclass(frozen=True)
 class CoverageRequest:
     """Copertura manuale richiesta dall'utente."""
 
@@ -107,6 +119,9 @@ class WeeklyInstruction:
     unavailable_by_person: dict[str, set[str]] = field(default_factory=dict)
     morning_absence_by_person: dict[str, set[str]] = field(default_factory=dict)
     afternoon_absence_by_person: dict[str, set[str]] = field(default_factory=dict)
+    unavailable_ranges_by_person: dict[str, list[TimeRangeUnavailability]] = field(
+        default_factory=dict
+    )
     forced_shop_coverage: list[CoverageRequest] = field(default_factory=list)
     forced_lake_coverage: list[CoverageRequest] = field(default_factory=list)
     lake_opening_coverage: list[CoverageRequest] = field(default_factory=list)
@@ -150,6 +165,14 @@ class WeeklyInstruction:
             return True
         start_minutes = _to_minutes(start)
         end_minutes = _to_minutes(end)
+        for absence in self.unavailable_ranges_by_person.get(person, []):
+            if absence.day != day:
+                continue
+            if (
+                start_minutes < _to_minutes(absence.end)
+                and _to_minutes(absence.start) < end_minutes
+            ):
+                return True
         if day in self.morning_absence_days_for(person) and start_minutes < _to_minutes(
             "14:00"
         ):
@@ -237,7 +260,7 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
         part.strip() for part in text.replace("\n", ". ").split(".") if part.strip()
     ]
     for sentence in sentences:
-        lowered = sentence.lower()
+        lowered = _normalize_free_text(sentence)
         days = _days_in_text(lowered)
         people = _people_in_text(lowered)
         period = _period_in_text(lowered)
@@ -272,7 +295,7 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
 
         if people and _mentions_unavailability(lowered):
             for person in people:
-                _add_absence(instruction, person, days, period)
+                _add_absence(instruction, person, days, period, lowered)
             continue
 
         if GIAMMARCO.full_name in people and _mentions_external_work(lowered):
@@ -296,6 +319,22 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
                         instruction.giammarco_lake_days.add(day)
             continue
 
+        if people and _mentions_shop(lowered) and _mentions_opening(lowered):
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(
+                        day,
+                        person,
+                        ActivityId.SHOP,
+                        "09:00",
+                        "12:30",
+                        "apertura negozio",
+                    )
+                    instruction.forced_shop_coverage.append(request)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_shop_days.add(day)
+            continue
+
         if people and _mentions_lake(lowered) and _mentions_closing(lowered):
             for person in people:
                 for day in days:
@@ -306,6 +345,27 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
                     instruction.forced_lake_coverage.append(request)
                     if person == GIAMMARCO.full_name:
                         instruction.giammarco_lake_days.add(day)
+            continue
+
+        if people and _mentions_shop(lowered) and _mentions_closing(lowered):
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(
+                        day,
+                        person,
+                        ActivityId.SHOP,
+                        "15:30",
+                        "19:30",
+                        "chiusura negozio",
+                    )
+                    instruction.forced_shop_coverage.append(request)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_shop_days.add(day)
+            continue
+
+        if people and _mentions_leaves_at(lowered):
+            for person in people:
+                _add_absence(instruction, person, days, AFTERNOON, lowered)
             continue
 
         if people and _mentions_shop(lowered):
@@ -365,6 +425,16 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
             instruction.high_lake_booking_days.update(days)
             continue
 
+        if LORENZO.full_name in people and _mentions_work_request(lowered):
+            instruction.lorenzo_must_open_lake_days.update(days)
+            for day in days:
+                _add_day_note(
+                    instruction,
+                    day,
+                    "Lorenzo deve lavorare per istruzione settimanale",
+                )
+            continue
+
         instruction.unknown_notes.append(sentence)
 
     return instruction
@@ -374,6 +444,10 @@ def _load_structured_data(text: str, suffix: str) -> Any:
     if suffix == ".json":
         return json.loads(text)
     return _parse_simple_yaml(text)
+
+
+def _normalize_free_text(text: str) -> str:
+    return text.lower().replace("’", "'").replace("`", "'")
 
 
 def _read_absences(instruction: WeeklyInstruction, absences: Any) -> None:
@@ -792,8 +866,29 @@ def _period_in_text(lowered_text: str) -> str:
 
 
 def _add_absence(
-    instruction: WeeklyInstruction, person: str, days: set[str], period: str
+    instruction: WeeklyInstruction,
+    person: str,
+    days: set[str],
+    period: str,
+    lowered_text: str = "",
 ) -> None:
+    explicit_range = _time_range_in_text(lowered_text)
+    if explicit_range is not None:
+        start, end = explicit_range
+        for day in days:
+            instruction.unavailable_ranges_by_person.setdefault(person, []).append(
+                TimeRangeUnavailability(day, person, start, end, "indisponibilità")
+            )
+        return
+    leave_time = _leave_time_in_text(lowered_text)
+    if leave_time is not None:
+        for day in days:
+            instruction.unavailable_ranges_by_person.setdefault(person, []).append(
+                TimeRangeUnavailability(
+                    day, person, leave_time, "23:59", "uscita anticipata"
+                )
+            )
+        return
     if period == MORNING:
         instruction.morning_absence_by_person.setdefault(person, set()).update(days)
         return
@@ -883,11 +978,53 @@ def _mentions_external_work(lowered_text: str) -> bool:
 
 
 def _external_work_range_and_label(lowered_text: str) -> tuple[str, str, str]:
+    explicit_range = _time_range_in_text(lowered_text)
+    if explicit_range is not None:
+        return explicit_range[0], explicit_range[1], _external_work_label(lowered_text)
+    appointment_time = _appointment_time_in_text(lowered_text)
+    if appointment_time is not None:
+        start = appointment_time
+        end = _add_hours(start, 2)
+        return start, end, _external_work_label(lowered_text)
     if any(word in lowered_text for word in ("mattina", "morning")):
         return "07:30", "14:00", _external_work_label(lowered_text)
     if any(word in lowered_text for word in ("pomeriggio", "afternoon")):
         return "14:00", "19:30", _external_work_label(lowered_text)
     return "07:30", "19:30", _external_work_label(lowered_text)
+
+
+def _time_range_in_text(lowered_text: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"\b(?:dalle|da)\s+(\d{1,2})(?::(\d{2}))?\s+(?:alle|a)\s+(\d{1,2})(?::(\d{2}))?\b",
+        lowered_text,
+    )
+    if not match:
+        return None
+    return _format_time(match.group(1), match.group(2)), _format_time(
+        match.group(3), match.group(4)
+    )
+
+
+def _appointment_time_in_text(lowered_text: str) -> str | None:
+    match = re.search(r"\balle\s+(\d{1,2})(?::(\d{2}))?\b", lowered_text)
+    if not match:
+        return None
+    return _format_time(match.group(1), match.group(2))
+
+
+def _leave_time_in_text(lowered_text: str) -> str | None:
+    if not _mentions_leaves_at(lowered_text):
+        return None
+    return _appointment_time_in_text(lowered_text)
+
+
+def _format_time(hour: str, minute: str | None) -> str:
+    return f"{int(hour):02d}:{int(minute or '00'):02d}"
+
+
+def _add_hours(start: str, hours: int) -> str:
+    minutes = _to_minutes(start) + hours * 60
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
 def _external_work_label(lowered_text: str) -> str:
@@ -925,6 +1062,10 @@ def _mentions_unavailability(lowered_text: str) -> bool:
         "non c'e",
         "non ce",
         "non cè",
+        "non ci sono",
+        "non ci sei",
+        "non ci sara",
+        "non ci sarà",
         "unavailable",
         "absent",
         "holiday",
@@ -932,6 +1073,19 @@ def _mentions_unavailability(lowered_text: str) -> bool:
         "day off",
     )
     return any(word in lowered_text for word in unavailable_words)
+
+
+def _mentions_leaves_at(lowered_text: str) -> bool:
+    return any(
+        text in lowered_text
+        for text in (
+            "deve uscire",
+            "esce",
+            "uscire alle",
+            "va via",
+            "deve andare via",
+        )
+    )
 
 
 def _mentions_high_lake_bookings(lowered_text: str) -> bool:
@@ -960,6 +1114,13 @@ def _mentions_extra_lake_coverage(lowered_text: str) -> bool:
     )
     return any(word in lowered_text for word in extra_words) and _mentions_lake(
         lowered_text
+    )
+
+
+def _mentions_work_request(lowered_text: str) -> bool:
+    return any(
+        text in lowered_text
+        for text in ("deve lavorare", "deve essere al lavoro", "lavora")
     )
 
 
