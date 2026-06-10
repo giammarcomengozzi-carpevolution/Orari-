@@ -193,7 +193,8 @@ def test_wife_calendar_m_blocks_only_giammarco_lake_opening():
     sunday = next(day for day in schedule.days if day.day == "Domenica")
 
     assert any(
-        "codice M" in warning and "07:30" in warning for warning in sunday.warnings
+        warning == "Conflitto: Giammarco non può aprire il lago il 2026-06-14 perché nel calendario moglie c’è M."
+        for warning in sunday.warnings
     )
     assert not any(
         assignment.person == GIAMMARCO
@@ -203,7 +204,7 @@ def test_wife_calendar_m_blocks_only_giammarco_lake_opening():
     )
 
 
-def test_wife_calendar_other_codes_are_ignored():
+def test_wife_calendar_p_is_ignored():
     schedule = generate_weekly_schedule(
         "Domenica Lorenzo è assente",
         week_start_date="2026-06-08",

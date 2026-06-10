@@ -74,7 +74,11 @@ def _notes_to_planning_text(notes: list[Note]) -> str:
 def _collect_warnings(schedule: WeeklySchedule) -> list[str]:
     warnings = list(schedule.global_warnings)
     for day in schedule.days:
-        warnings.extend(f"{day.day}: {warning}" for warning in day.warnings)
+        for warning in day.warnings:
+            if warning.startswith("Conflitto:"):
+                warnings.append(warning)
+            else:
+                warnings.append(f"{day.day}: {warning}")
     return warnings
 
 

@@ -38,12 +38,17 @@ def build_application(config: BotConfig) -> Application:
     application.bot_data["allowed_user_id"] = config.allowed_telegram_user_id
     application.bot_data["notes_repository"] = notes_repository
     application.bot_data["schedule_service"] = schedule_service
+    application.bot_data["wife_calendar_repository"] = wife_calendar_repository
 
     application.add_handler(CommandHandler("start", commands.start))
     application.add_handler(CommandHandler("aiuto", commands.aiuto))
     application.add_handler(CommandHandler("nota", commands.nota))
     application.add_handler(CommandHandler("lista", commands.lista))
     application.add_handler(CommandHandler("cancella", commands.cancella))
+    application.add_handler(CommandHandler("cancella_tutte", commands.cancella_tutte))
+    application.add_handler(CommandHandler("moglie_set", commands.moglie_set))
+    application.add_handler(CommandHandler("moglie_lista", commands.moglie_lista))
+    application.add_handler(CommandHandler("moglie_cancella", commands.moglie_cancella))
     application.add_handler(CommandHandler("genera", commands.genera))
     application.add_handler(CommandHandler("reset_settimana", commands.reset_settimana))
     application.add_handler(

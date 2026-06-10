@@ -611,7 +611,10 @@ def _can_giammarco_open_lake(
     code = wife_codes.get(date_key) if date_key else None
     allowed = can_giammarco_open_lake_at_0730(code)
     if allowed is False:
-        warning = f"Calendario moglie {date_key}: codice M, quindi Giammarco non può aprire il lago alle 07:30."
+        warning = (
+            "Conflitto: Giammarco non può aprire il lago "
+            f"il {date_key} perché nel calendario moglie c’è M."
+        )
         if warning not in day_schedule.warnings:
             day_schedule.warnings.append(warning)
         return False

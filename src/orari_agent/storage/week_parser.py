@@ -25,6 +25,22 @@ MONTHS = {
     "dicembre": 12,
 }
 
+_NUMBER_WORDS = {
+    "zero": 0,
+    "una": 1,
+    "uno": 1,
+    "un": 1,
+    "due": 2,
+    "tre": 3,
+    "quattro": 4,
+    "cinque": 5,
+    "sei": 6,
+    "sette": 7,
+    "otto": 8,
+    "nove": 9,
+    "dieci": 10,
+}
+
 LOCATION_ALIASES = {
     "negozio": "CarpeEvolution Store",
     "store": "CarpeEvolution Store",
@@ -82,18 +98,28 @@ def current_or_next_week_bounds(today: date | None = None) -> tuple[date, date]:
 
 
 def parse_week_request(text: str | None, today: date | None = None) -> tuple[date, date]:
-    """Interpreta date tipo `settimana prossima` o `dal 17 al 23 giugno`."""
+    """Interpreta richieste tipo `settimana prossima` o `dal 17 al 23 giugno`.
+
+    La scelta è deterministica: senza una settimana esplicita torna la prossima
+    settimana lunedì-domenica; `questa settimana` torna sempre la settimana
+    corrente lunedì-domenica.
+    """
 
     base = today or date.today()
     lowered = _normalize(text or "")
+
     explicit = _parse_explicit_range(lowered, base)
     if explicit is not None:
         return explicit
+
+    relative = _parse_relative_week(lowered, base)
+    if relative is not None:
+        return relative
+
     single_date = _parse_single_date(lowered, base)
     if single_date is not None:
         return week_bounds_for(single_date)
-    if "prossima" in lowered or "prossimo" in lowered:
-        return next_week_bounds(base)
+
     return next_week_bounds(base)
 
 
@@ -110,6 +136,30 @@ def parse_note_metadata(text: str, today: date | None = None) -> ParsedNoteMetad
         location=_detect_location(text),
         constraint_type=_detect_constraint_type(text),
     )
+
+
+def _parse_relative_week(text: str, base: date) -> tuple[date, date] | None:
+    current_start, _ = week_bounds_for(base)
+    if re.search(r"\bquesta\s+settimana\b", text):
+        return current_start, current_start + timedelta(days=6)
+    if re.search(r"\b(?:settimana\s+prossima|prossima\s+settimana)\b", text):
+        start = current_start + timedelta(days=7)
+        return start, start + timedelta(days=6)
+
+    match = re.search(r"\b(?:fra|tra)\s+(\d+|[a-z]+)\s+settimane\b", text)
+    if match:
+        amount = _parse_integer(match.group(1))
+        if amount is None:
+            return None
+        start = current_start + timedelta(days=7 * amount)
+        return start, start + timedelta(days=6)
+    return None
+
+
+def _parse_integer(value: str) -> int | None:
+    if value.isdigit():
+        return int(value)
+    return _NUMBER_WORDS.get(value)
 
 
 def _parse_explicit_range(text: str, base: date) -> tuple[date, date] | None:
@@ -134,7 +184,7 @@ def _parse_explicit_range(text: str, base: date) -> tuple[date, date] | None:
 
 
 def _parse_single_date(text: str, base: date) -> date | None:
-    match = re.search(r"\b(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b", text)
+    match = re.search(r"\b(?:settimana\s+del\s+)?(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b", text)
     if not match:
         match_iso = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text)
         if match_iso:

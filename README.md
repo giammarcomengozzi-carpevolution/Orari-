@@ -220,16 +220,27 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - valida l'orario e riepiloga eventuali avvisi/conflitti;
 - crea un PDF A4 orizzontale pronto da inoltrare su Telegram o WhatsApp;
 - invia il PDF direttamente nella chat Telegram;
-- mantiene già pronta la tabella `wife_calendar` per la regola futura sul codice `M`.
+- mantiene la tabella `wife_calendar` compilabile manualmente: solo il codice `M` blocca Giammarco dall’apertura lago alle 07:30.
 
 ## Comandi Telegram
 
 - `/start` — spiega cosa fa il bot.
 - `/aiuto` — mostra esempi e comandi.
 - `/nota Giovedì Gianmarco in negozio tutto il giorno per fatture` — salva una nota.
-- `/lista` — mostra le note attive della settimana corrente/prossima.
-- `/lista dal 17 al 23 giugno` — mostra le note di una settimana specifica.
-- `/cancella 12` — cancella la nota con ID 12.
+- `/lista` — mostra ID, settimana interpretata, data interpretata e testo delle note attive della settimana corrente/prossima.
+- `/lista questa settimana` — mostra le note della settimana corrente lunedì-domenica.
+- `/lista settimana prossima` o `/lista prossima settimana` — mostra le note della prossima settimana lunedì-domenica.
+- `/lista fra 2 settimane` o `/lista fra due settimane` — mostra le note della settimana dopo la prossima.
+- `/lista dal 17 al 23 giugno` — mostra le note di un intervallo specifico.
+- `/cancella 12` — cancella la nota attiva con ID 12 e conferma l’operazione; se l’ID non esiste lo dice chiaramente.
+- `/cancella_tutte confermo` — archivia tutte le note attive della prossima settimana.
+- `/cancella_tutte settimana prossima confermo` — archivia tutte le note attive della prossima settimana.
+- `/cancella_tutte questa settimana confermo` — archivia tutte le note attive della settimana corrente.
+- `/cancella_tutte fra 2 settimane confermo` — archivia tutte le note attive della settimana dopo la prossima.
+- `/moglie_set YYYY-MM-DD M` — salva il codice `M` per quella data; blocca Giammarco dall’apertura lago alle 07:30.
+- `/moglie_set YYYY-MM-DD P` — salva il codice `P`; non ha effetto bloccante.
+- `/moglie_lista` — mostra i codici calendario moglie salvati.
+- `/moglie_cancella YYYY-MM-DD` — elimina il codice salvato per quella data.
 - `/genera` — genera il PDF della settimana prossima.
 - `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata.
 - `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
@@ -368,7 +379,37 @@ All'avvio il bot crea automaticamente le tabelle:
 
 - `notes` — note attive/usate/cancellate con testo originale e metadati interpretati;
 - `generated_schedules` — cronologia PDF generati, riepilogo e avvisi;
-- `wife_calendar` — tabella pronta per il calendario moglie; per ora il motore può usare il codice `M` se presente.
+- `wife_calendar` — tabella del calendario moglie compilabile da Telegram; solo il codice `M` ha effetto operativo, mentre `P`, `I`, `F` e colori/altre marcature sono ignorati.
+
+
+## Interpretazione settimane nel bot
+
+Il parser delle settimane è deterministico e usa regole italiane:
+
+- `questa settimana` = settimana corrente da lunedì a domenica;
+- `settimana prossima` e `prossima settimana` = prossima settimana da lunedì a domenica;
+- `fra 2 settimane`, `tra 2 settimane`, `fra due settimane`, `tra due settimane` = settimana dopo la prossima;
+- `dal 17 al 23 giugno` = intervallo esatto indicato;
+- `settimana del 17 giugno` = settimana lunedì-domenica che contiene il 17 giugno.
+
+Senza indicazione di settimana, i comandi operativi usano la prossima settimana.
+
+## Calendario moglie di Giammarco
+
+La lettura automatica da immagine/OCR non è inclusa in questa fase. I codici si salvano manualmente con `/moglie_set`.
+
+Regola operativa attiva:
+
+- se in una data il codice è `M`, Giammarco non può aprire il lago alle `07:30`;
+- tutti gli altri codici, per esempio `P`, `I`, `F`, e i colori rosso/giallo/rosa non bloccano nulla.
+
+Durante `/genera`, se il motore trova Giammarco assegnato all’apertura lago delle 07:30 in una data con codice `M`, mostra un avviso chiaro:
+
+```text
+Conflitto: Giammarco non può aprire il lago il YYYY-MM-DD perché nel calendario moglie c’è M.
+```
+
+Il generatore prova prima a evitare quell’assegnazione. Se non riesce a coprire tutto, genera comunque il PDF e lascia l’avviso/conflitto nel riepilogo.
 
 ## Come testare senza Telegram
 
@@ -398,6 +439,10 @@ Per il test completo con Telegram:
 1. avvia `python main.py`;
 2. apri la chat con il bot;
 3. scrivi `/start`;
-4. scrivi una o più note;
-5. scrivi `/lista`;
-6. scrivi `/genera` e controlla che arrivi il PDF.
+4. prova `/nota Sabato Lorenzo deve uscire alle 15` e verifica che il bot risponda con l’ID della nota;
+5. prova `/lista`, `/lista questa settimana`, `/lista settimana prossima`, `/lista fra 2 settimane` e `/lista dal 17 al 23 giugno`; ogni riga deve mostrare ID, settimana, data interpretata se presente e testo;
+6. prova `/cancella ID` usando un ID reale, poi riprova con lo stesso ID per verificare il messaggio “non trovata”;
+7. crea due note di prova e usa `/cancella_tutte confermo` oppure `/cancella_tutte questa settimana confermo`; senza `confermo` il bot deve rispondere `Per sicurezza, ripeti il comando aggiungendo confermo.`;
+8. prova `/moglie_set 2026-06-14 M`, poi `/moglie_lista`, poi `/moglie_cancella 2026-06-14`;
+9. per verificare il conflitto calendario moglie, salva una data con `M` nella settimana da generare e usa `/genera`; se Giammarco fosse assegnato all’apertura lago delle 07:30, il riepilogo deve mostrare il conflitto;
+10. prova anche `/moglie_set 2026-06-14 P` e `/genera`: `P` deve essere ignorato come vincolo.
