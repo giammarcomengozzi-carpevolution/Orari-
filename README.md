@@ -90,6 +90,21 @@ Orario_CarpeEvolution_Tenuta_YYYY-MM-DD.pdf
 
 La data nel nome deriva da `week_start` dentro `input/weekly_plan.yaml`.
 
+## Nuovo layout PDF per WhatsApp/Telegram
+
+Il PDF settimanale è in formato **A4 orizzontale** con stile professionale verde/nero/bianco, senza dipendenze da loghi o immagini esterne. È pensato per essere leggibile da telefono e per essere inoltrato rapidamente ad Angelo, Lorenzo e Gianmarco.
+
+La **pagina 1** contiene:
+
+- intestazione con titolo `Orario settimanale`, sottotitolo `CarpeEvolution Store & Tenuta del Germano` e intervallo `Settimana: YYYY-MM-DD / YYYY-MM-DD`;
+- tabella principale per giorno, con colonne `Giorno`, `Data`, `Lago mattina 07:30-14:00`, `Lago pomeriggio 14:00-18:30`, `Negozio mattina 09:00-12:30`, `Negozio pomeriggio 15:30-19:30` e `Note`;
+- nomi completi delle persone nei turni (`Angelo Antonelli`, `Lorenzo Sansavini`, `Gianmarco Mengozzi`) e pause compatte, ad esempio `Pausa 14:00-15:00`;
+- riquadro `Note operative`, riquadro `Avvisi / conflitti` e riquadro `Memorie operative applicate`;
+- messaggio `ATTENZIONE` quando ci sono conflitti, oppure `Nessun conflitto rilevato.` quando i controlli non trovano problemi;
+- footer con timestamp di generazione e indicazione che il file è pronto per WhatsApp/Telegram.
+
+La **pagina 2** viene aggiunta solo quando serve più spazio, ad esempio con molte note, molti avvisi/conflitti o molte memorie operative applicate. In quel caso contiene i dettagli completi di note operative, avvisi/conflitti e memorie, mentre la prima pagina resta compatta.
+
 ## Cosa fare se c'è un errore
 
 La finestra del launcher resta aperta alla fine, così puoi leggere il messaggio.
@@ -266,7 +281,7 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - `/moglie_reset` — chiede conferma prima di svuotare il calendario moglie.
 - `/moglie_reset confermo` — svuota tutte le righe del calendario moglie.
 - `/genera` — genera il PDF della settimana prossima.
-- `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata.
+- `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata. Il bot invia anche un riepilogo breve con intervallo settimana, numero di note usate, numero di memorie operative applicate, numero di avvisi/conflitti e nome del file PDF allegato.
 - `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
 
 Puoi anche scrivere messaggi normali, ad esempio:
@@ -534,6 +549,7 @@ Per il test completo con Telegram:
 1. avvia `python main.py`;
 2. apri la chat con il bot;
 3. scrivi `/start`;
+3-bis. prova `/genera` oppure `/genera dal 17 al 23 giugno` e verifica che arrivino il PDF e un riepilogo simile a `Orario generato per 2026-06-15 / 2026-06-21. Note usate: 3. Memorie operative: 2. Avvisi/conflitti: 1. PDF allegato: Orario_CarpeEvolution_Tenuta_2026-06-15_2026-06-21.pdf.`;
 4. prova `/nota Sabato Lorenzo deve uscire alle 15` e verifica che il bot risponda con l’ID della nota;
 5. prova `/lista`, `/lista questa settimana`, `/lista settimana prossima`, `/lista fra 2 settimane` e `/lista dal 17 al 23 giugno`; ogni riga deve mostrare ID, settimana, data interpretata se presente e testo;
 6. prova `/cancella ID` usando un ID reale, poi riprova con lo stesso ID per verificare il messaggio “non trovata”;
