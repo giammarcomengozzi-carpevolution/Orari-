@@ -1,0 +1,59 @@
+"""Factory dell'applicazione Telegram in long polling."""
+
+from __future__ import annotations
+
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
+
+from orari_agent.config import BotConfig
+from orari_agent.storage.db import connect
+from orari_agent.storage.notes_repository import NotesRepository
+from orari_agent.storage.schedules_repository import SchedulesRepository
+from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
+
+from . import commands
+from .schedule_service import ScheduleService
+
+
+def build_application(config: BotConfig) -> Application:
+    """Crea ApplicationBuilder e registra comandi/handler."""
+
+    connection = connect(config.database_path)
+    notes_repository = NotesRepository(connection)
+    schedules_repository = SchedulesRepository(connection)
+    wife_calendar_repository = WifeCalendarRepository(connection)
+    schedule_service = ScheduleService(
+        notes_repository,
+        schedules_repository,
+        wife_calendar_repository,
+        config.output_dir,
+    )
+
+    application = ApplicationBuilder().token(config.telegram_bot_token).build()
+    application.bot_data["allowed_user_id"] = config.allowed_telegram_user_id
+    application.bot_data["notes_repository"] = notes_repository
+    application.bot_data["schedule_service"] = schedule_service
+
+    application.add_handler(CommandHandler("start", commands.start))
+    application.add_handler(CommandHandler("aiuto", commands.aiuto))
+    application.add_handler(CommandHandler("nota", commands.nota))
+    application.add_handler(CommandHandler("lista", commands.lista))
+    application.add_handler(CommandHandler("cancella", commands.cancella))
+    application.add_handler(CommandHandler("genera", commands.genera))
+    application.add_handler(CommandHandler("reset_settimana", commands.reset_settimana))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, commands.free_text)
+    )
+    return application
+
+
+def run_bot(config: BotConfig) -> None:
+    """Avvia il bot con getUpdates/long polling."""
+
+    application = build_application(config)
+    application.run_polling(drop_pending_updates=False)

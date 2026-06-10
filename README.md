@@ -203,3 +203,201 @@ Le istruzioni possono essere passate in un unico testo, separate da punto o a ca
 ## Nota sul calendario della moglie di Giammarco
 
 L'OCR e la lettura immagini non sono implementati. È però presente un archivio JSON persistente e un'interfaccia dedicata. In questa fase solo il codice `M` è un vincolo: Giammarco non può aprire il lago alle 07:30 nella data interessata. I codici `P`, `I`, `F`, colori o altre marcature non vincolano l’orario.
+
+---
+
+# Bot Telegram privato con memoria SQLite
+
+Questa versione aggiunge un **chatbot Telegram privato** che permette a Gianmarco di scrivere note durante la settimana e poi generare direttamente il PDF dell'orario settimanale.
+
+La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di generazione PDF già presente nel progetto.
+
+## Cosa fa il bot
+
+- salva messaggi liberi come note settimanali persistenti in SQLite;
+- protegge l'accesso con `ALLOWED_TELEGRAM_USER_ID`;
+- genera l'orario con le regole fisse di CarpeEvolution Store e Tenuta del Germano;
+- valida l'orario e riepiloga eventuali avvisi/conflitti;
+- crea un PDF A4 orizzontale pronto da inoltrare su Telegram o WhatsApp;
+- invia il PDF direttamente nella chat Telegram;
+- mantiene già pronta la tabella `wife_calendar` per la regola futura sul codice `M`.
+
+## Comandi Telegram
+
+- `/start` — spiega cosa fa il bot.
+- `/aiuto` — mostra esempi e comandi.
+- `/nota Giovedì Gianmarco in negozio tutto il giorno per fatture` — salva una nota.
+- `/lista` — mostra le note attive della settimana corrente/prossima.
+- `/lista dal 17 al 23 giugno` — mostra le note di una settimana specifica.
+- `/cancella 12` — cancella la nota con ID 12.
+- `/genera` — genera il PDF della settimana prossima.
+- `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata.
+- `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
+
+Puoi anche scrivere messaggi normali, ad esempio:
+
+```text
+Giovedì Gianmarco deve stare in negozio tutto il giorno per fatture.
+Sabato Lorenzo deve uscire alle 15.
+Domenica al lago ci sono molte prenotazioni.
+Martedì prossimo Angelo non c'è la mattina.
+Venerdì io sono dal commercialista alle 10.
+```
+
+Se il messaggio inizia con `Genera orario`, il bot genera il PDF invece di salvarlo come nota.
+
+## Creare il bot con BotFather
+
+1. Apri Telegram e cerca **@BotFather**.
+2. Scrivi `/newbot`.
+3. Scegli un nome leggibile, per esempio `Orari CarpeEvolution`.
+4. Scegli uno username che finisca con `bot`, per esempio `orari_carpeevolution_bot`.
+5. BotFather ti darà un token simile a:
+
+```text
+123456789:AAExampleToken...
+```
+
+Questo valore va inserito in `TELEGRAM_BOT_TOKEN`.
+
+## Trovare ALLOWED_TELEGRAM_USER_ID
+
+Il bot è privato: salva e genera orari solo per l'ID Telegram configurato.
+
+Metodo semplice:
+
+1. Apri Telegram.
+2. Cerca **@userinfobot** oppure **@RawDataBot**.
+3. Avvialo e leggi il tuo `id` numerico.
+4. Copia quel numero in `ALLOWED_TELEGRAM_USER_ID`.
+
+Esempio:
+
+```env
+ALLOWED_TELEGRAM_USER_ID=123456789
+```
+
+Se un altro utente scrive al bot, il bot risponde cortesemente e non salva nulla.
+
+## Configurare `.env`
+
+Copia il file di esempio:
+
+```bash
+cp .env.example .env
+```
+
+Poi modifica `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:ABCDEF_TOKEN_DEL_BOT
+ALLOWED_TELEGRAM_USER_ID=123456789
+DATABASE_PATH=data/orari_bot.sqlite3
+OUTPUT_DIR=output
+```
+
+`DATABASE_PATH` indica il file SQLite persistente. Se cancelli quel file perdi note, cronologia generazioni e futuro calendario moglie.
+
+## Avvio locale su macOS
+
+Dalla cartella del progetto:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+# In alternativa: python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Dopo aver compilato `.env`, avvia il bot:
+
+```bash
+python main.py
+```
+
+Oppure, dopo l'installazione editable:
+
+```bash
+orari-telegram-bot
+```
+
+Il bot usa **long polling** (`getUpdates`), quindi non serve configurare webhook, HTTPS o dominio. Telegram non può usare contemporaneamente long polling e webhook per lo stesso bot: per questa prima versione resta attivo solo il polling.
+
+## Deploy futuro su piccolo server cloud
+
+Per un server Linux economico:
+
+1. installa Python 3.10+;
+2. clona il repository;
+3. crea `.env` con token, user ID e percorso database;
+4. installa il progetto con `python -m pip install -e .`;
+5. avvia `orari-telegram-bot` dentro `tmux`, `screen` o come servizio `systemd`.
+
+Esempio servizio `systemd` indicativo:
+
+```ini
+[Unit]
+Description=Orari Telegram Bot
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/Orari-
+ExecStart=/opt/Orari-/.venv/bin/orari-telegram-bot
+Restart=always
+EnvironmentFile=/opt/Orari-/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Struttura tecnica aggiunta
+
+- `main.py` — avvio locale del bot.
+- `.env.example` — esempio variabili d'ambiente.
+- `requirements.txt` — dipendenze minime del bot se non usi `pip install -e .`.
+- `src/orari_agent/config.py` — lettura configurazione.
+- `src/orari_agent/bot/` — ApplicationBuilder, comandi, sicurezza e servizio di generazione.
+- `src/orari_agent/storage/` — SQLite, repository note, cronologia PDF, calendario moglie e parsing settimane.
+- `src/orari_agent/bot_runner.py` — entry point installabile `orari-telegram-bot`.
+
+## Database SQLite
+
+All'avvio il bot crea automaticamente le tabelle:
+
+- `notes` — note attive/usate/cancellate con testo originale e metadati interpretati;
+- `generated_schedules` — cronologia PDF generati, riepilogo e avvisi;
+- `wife_calendar` — tabella pronta per il calendario moglie; per ora il motore può usare il codice `M` se presente.
+
+## Come testare senza Telegram
+
+Puoi verificare che il motore PDF continui a funzionare:
+
+```bash
+PYTHONPATH=src python -m orari_agent --planning-file input/weekly_plan.yaml --pdf --output output
+```
+
+Puoi verificare parsing e SQLite con un piccolo script temporaneo:
+
+```bash
+PYTHONPATH=src python - <<'PY'
+from orari_agent.storage.db import connect
+from orari_agent.storage.notes_repository import NotesRepository
+from orari_agent.storage.week_parser import parse_note_metadata
+
+conn = connect('data/test_orari_bot.sqlite3')
+repo = NotesRepository(conn)
+note = repo.add('Giovedì Gianmarco in negozio tutto il giorno per fatture', parse_note_metadata('Giovedì Gianmarco in negozio tutto il giorno per fatture'))
+print(note)
+PY
+```
+
+Per il test completo con Telegram:
+
+1. avvia `python main.py`;
+2. apri la chat con il bot;
+3. scrivi `/start`;
+4. scrivi una o più note;
+5. scrivi `/lista`;
+6. scrivi `/genera` e controlla che arrivi il PDF.
