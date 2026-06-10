@@ -626,3 +626,145 @@ I test coprono anche le frasi operative più importanti:
 - Le note sconosciute sono preservate come avvisi del PDF.
 - La memoria operativa salva assenze singole, ferie, assenze parziali, lavoro esterno, ricorrenze settimanali e preserva testo non interpretato senza interrompere la generazione.
 - La risposta `/nota` include la sintesi dell’interpretazione automatica.
+
+---
+
+## Produzione su VPS Linux
+
+Target consigliato: **Hetzner Cloud CX22** o VPS equivalente con Ubuntu/Debian, Python 3.10+ e disco persistente. Il bot usa long polling Telegram: non servono dominio, HTTPS o webhook.
+
+### Verifica dipendenze
+
+Le dipendenze runtime sono dichiarate in `requirements.txt` e nel `pyproject.toml`. Per l'import Excel è richiesta `openpyxl`:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pytest
+```
+
+Se l'ambiente non ha accesso a PyPI, installare prima i pacchetti di progetto in una rete abilitata oppure preparare una wheelhouse interna.
+
+### Installazione iniziale VPS
+
+Esempio Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip git
+sudo useradd --system --create-home --shell /usr/sbin/nologin orari
+sudo mkdir -p /opt/Orari-
+sudo chown orari:orari /opt/Orari-
+sudo -u orari git clone <URL_REPOSITORY> /opt/Orari-
+cd /opt/Orari-
+sudo -u orari python3 -m venv .venv
+sudo -u orari .venv/bin/python -m pip install --upgrade pip
+sudo -u orari .venv/bin/python -m pip install -r requirements.txt
+sudo -u orari cp .env.example .env
+sudo -u orari nano .env
+```
+
+Configurazione minima `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:ABCDEF_TOKEN_DEL_BOT
+ALLOWED_TELEGRAM_USER_ID=123456789
+DATABASE_PATH=data/orari_bot.sqlite3
+OUTPUT_DIR=output
+```
+
+Tutti i dati persistenti operativi stanno sotto `data/`: database SQLite, file importati e backup. La cartella `output/` contiene i PDF generati.
+
+### Avvio manuale
+
+```bash
+cd /opt/Orari-
+./start_bot.sh
+```
+
+### Servizio systemd 24/7
+
+Il file `orari-bot.service` è un esempio pronto da copiare:
+
+```bash
+sudo cp /opt/Orari-/orari-bot.service /etc/systemd/system/orari-bot.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now orari-bot.service
+sudo systemctl status orari-bot.service
+journalctl -u orari-bot.service -f
+```
+
+Dopo un riavvio del VPS, `systemd` riavvia automaticamente il bot.
+
+## Persistenza dati
+
+La configurazione standard usa:
+
+- `data/orari_bot.sqlite3` per note, memoria operativa, cronologia PDF e calendario moglie;
+- `data/imports/` per file ricevuti da Telegram, inclusi Excel e immagini calendario moglie;
+- `data/backups/` per gli ZIP creati da `/backup`.
+
+Il database SQLite sopravvive al riavvio del processo e del VPS finché non viene cancellato il file in `data/`. Sopravvivono quindi anche:
+
+- note settimanali;
+- memoria operativa;
+- import calendario moglie;
+- cronologia essenziale delle generazioni.
+
+## Import Excel calendario moglie
+
+Comando principale:
+
+```text
+/carica_calendario_moglie
+```
+
+Workflow:
+
+1. scrivi `/carica_calendario_moglie`;
+2. il bot chiede il file Excel;
+3. carica un file `.xlsx`;
+4. il bot legge il file con `openpyxl`;
+5. salva in `wife_calendar` solo le date collegate al codice esatto `M`;
+6. risponde con numero di date importate, inserimenti e aggiornamenti.
+
+Regola business in produzione: **solo `M` conta**. `P`, `I`, `F`, colori, celle vuote e formattazione non creano vincoli. Se il file attuale termina a giugno 2026 e non viene caricato un calendario più recente, luglio e agosto 2026 sono considerati liberi: le date mancanti non generano avvisi e Gianmarco può aprire il lago normalmente.
+
+Comandi di controllo:
+
+```text
+/calendario_moglie_info
+/calendario_moglie_reset confermo
+```
+
+`/calendario_moglie_info` mostra prima data caricata, ultima data caricata, numero di date `M` e timestamp dell'ultimo import. `/calendario_moglie_reset confermo` svuota il calendario moglie importato.
+
+## Backup e restore preparation
+
+Backup immediato da Telegram:
+
+```text
+/backup
+```
+
+Il bot crea `backup_YYYYMMDD_HHMMSS.zip` in `data/backups/` e lo invia in chat. Lo ZIP contiene:
+
+- database SQLite;
+- file importati in `data/imports/`, inclusi Excel calendario moglie;
+- `metadata.json` con percorso database, timestamp e conteggi principali.
+
+Info backup e dati persistenti:
+
+```text
+/backup_info
+```
+
+Mostra percorso database, numero note, numero memorie operative, numero righe calendario moglie e ultimo backup disponibile. Il restore automatico completo non è ancora implementato: per ora lo ZIP prepara il ripristino manuale dei file persistenti.
+
+## Workflow operativo consigliato in produzione
+
+1. Caricare il calendario moglie Excel con `/carica_calendario_moglie`.
+2. Aggiungere le note settimanali con `/nota ...` o messaggi liberi.
+3. Aggiungere memoria operativa persistente con `/memoria_aggiungi ...`.
+4. Generare l'orario con `/genera`.
+5. Condividere il PDF ricevuto dal bot.
+6. Creare un backup con `/backup` dopo import o modifiche importanti.

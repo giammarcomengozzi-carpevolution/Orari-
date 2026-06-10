@@ -1,0 +1,17 @@
+[Unit]
+Description=Orari Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Orari-
+EnvironmentFile=/opt/Orari-/.env
+ExecStart=/opt/Orari-/start_bot.sh
+Restart=always
+RestartSec=5
+User=orari
+Group=orari
+
+[Install]
+WantedBy=multi-user.target
