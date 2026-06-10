@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -64,8 +67,12 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancella_tutte confermo — archivia tutte le note attive della prossima settimana\n"
         "/cancella_tutte questa settimana confermo — archivia tutte le note attive della settimana scelta\n"
         "/moglie_set YYYY-MM-DD M — salva un codice del calendario moglie\n"
+        "/moglie_importa_m date1,date2,... — importa più date M\n"
+        "/importa_calendario_moglie — salva una foto calendario per import semi-manuale\n"
         "/moglie_lista — mostra i codici salvati\n"
+        "/moglie_lista M — mostra solo le date M\n"
         "/moglie_cancella YYYY-MM-DD — elimina un codice salvato\n"
+        "/moglie_reset confermo — svuota il calendario moglie\n"
         "/genera — genera il PDF della prossima settimana\n"
         "/genera dal 17 al 23 giugno — genera una settimana specifica\n"
         "/reset_settimana dal 17 al 23 giugno confermo — archivia le note attive della settimana\n\n"
@@ -187,15 +194,86 @@ async def moglie_lista(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not is_allowed_user(update, allowed_user_id):
         await reject_unauthorized(update)
         return
-    entries = wife_repository.list_entries()
+    code_filter = context.args[0].upper() if context.args else None
+    entries = wife_repository.list_entries(code_filter)
     if not entries:
-        await update.effective_message.reply_text(
-            "Nessun codice calendario moglie salvato."
+        message = (
+            f"Nessun codice calendario moglie salvato con codice {code_filter}."
+            if code_filter
+            else "Nessun codice calendario moglie salvato."
         )
+        await update.effective_message.reply_text(message)
         return
-    lines = ["Codici calendario moglie salvati:"]
+    title = (
+        f"Codici calendario moglie salvati ({code_filter}):"
+        if code_filter
+        else "Codici calendario moglie salvati:"
+    )
+    lines = [title]
     lines.extend(f"{entry.date}: {entry.code}" for entry in entries)
     await update.effective_message.reply_text("\n".join(lines))
+
+
+async def moglie_importa_m(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    text = update.effective_message.text or ""
+    dates, invalid = _parse_import_dates(text, "/moglie_importa_m")
+    if not dates:
+        await update.effective_message.reply_text(
+            "Nessuna data M valida trovata. Usa: /moglie_importa_m 2026-09-03,2026-09-10"
+        )
+        return
+    inserted, updated = wife_repository.bulk_upsert_code(
+        dates, "M", source="telegram_bulk_import"
+    )
+    await update.effective_message.reply_text(
+        _bulk_import_summary(dates, invalid, inserted, updated)
+    )
+
+
+async def moglie_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if context.args != ["confermo"]:
+        await update.effective_message.reply_text(
+            "Per sicurezza, ripeti con: /moglie_reset confermo"
+        )
+        return
+    wife_repository.reset()
+    await update.effective_message.reply_text("Calendario moglie svuotato.")
+
+
+async def importa_calendario_moglie(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if update.effective_message.photo:
+        await _save_wife_calendar_image(update, context, wife_repository)
+        return
+    context.user_data["awaiting_wife_calendar_image"] = True
+    await update.effective_message.reply_text(
+        "Mandami ora la foto della tabella orari di tua moglie."
+    )
+
+
+async def wife_calendar_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, wife_repository = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    caption = (update.effective_message.caption or "").strip()
+    waiting = bool(context.user_data.get("awaiting_wife_calendar_image"))
+    if not waiting and not caption.startswith("/importa_calendario_moglie"):
+        return
+    await _save_wife_calendar_image(update, context, wife_repository)
 
 
 async def moglie_cancella(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -288,6 +366,79 @@ def _warnings_text(warnings: list[str]) -> str:
     if len(warnings) > 8:
         preview += f"\n• ... altri {len(warnings) - 8} avvisi nel PDF/registro."
     return "Avvisi/conflitti:\n" + preview
+
+
+def _parse_import_dates(text: str, command: str) -> tuple[list[str], list[str]]:
+    payload = text.strip()
+    first_token = payload.split(maxsplit=1)[0] if payload else ""
+    if first_token == command or first_token.startswith(command + "@"):
+        payload = payload[len(first_token) :]
+    tokens = [
+        token.strip() for token in re.split(r"[,;\s]+", payload) if token.strip()
+    ]
+    valid: list[str] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if _is_iso_date(token):
+            if token not in seen:
+                valid.append(token)
+                seen.add(token)
+        else:
+            invalid.append(token)
+    return sorted(valid), invalid
+
+
+def _bulk_import_summary(
+    dates: list[str], invalid: list[str], inserted: int, updated: int
+) -> str:
+    preview = ", ".join(dates[:10])
+    if len(dates) > 10:
+        preview += f", ... (+{len(dates) - 10})"
+    lines = [
+        "Import calendario moglie completato.",
+        f"Date M salvate: {len(dates)}.",
+        f"Inserite: {inserted}. Aggiornate: {updated}.",
+        f"Prima data importata: {dates[0]}.",
+        f"Ultima data importata: {dates[-1]}.",
+        f"Prime date: {preview}.",
+    ]
+    if invalid:
+        invalid_preview = ", ".join(invalid[:10])
+        lines.append(f"Date ignorate perché non valide: {invalid_preview}.")
+    return "\n".join(lines)
+
+
+async def _save_wife_calendar_image(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    wife_repository: WifeCalendarRepository,
+) -> None:
+    import_dir = Path(
+        context.application.bot_data.get("wife_calendar_import_dir", "data/imports")
+    )
+    import_dir.mkdir(parents=True, exist_ok=True)
+    photo = update.effective_message.photo[-1]
+    telegram_file = await photo.get_file()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    image_path = import_dir / f"moglie_{timestamp}_{uuid4().hex[:8]}.jpg"
+    await telegram_file.download_to_drive(custom_path=image_path)
+    warning = (
+        "OCR automatico non abilitato: serve elenco date M con /moglie_importa_m."
+    )
+    wife_repository.add_import_record(
+        source="telegram_image",
+        image_path=str(image_path),
+        status="saved_needs_manual_dates",
+        summary="Foto calendario moglie ricevuta e salvata.",
+        warnings=[warning],
+    )
+    context.user_data["awaiting_wife_calendar_image"] = False
+    await update.effective_message.reply_text(
+        "Foto calendario ricevuta e salvata.\n"
+        "In questa versione non leggo ancora automaticamente la tabella con sicurezza.\n"
+        "Mandami l’elenco delle date M con /moglie_importa_m."
+    )
 
 
 def _is_iso_date(value: str) -> bool:
