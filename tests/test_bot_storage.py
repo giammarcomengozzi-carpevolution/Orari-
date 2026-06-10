@@ -114,7 +114,7 @@ def test_parse_week_request_tra_due_settimane_variant():
 
 
 def test_saved_note_message_includes_interpretation_summary(tmp_path):
-    from orari_agent.bot.note_messages import saved_note_message
+    from orari_agent.bot.note_messages import interpretation_summary, saved_note_message
 
     connection = connect(tmp_path / "orari_bot.sqlite3")
     repository = NotesRepository(connection)
@@ -130,3 +130,8 @@ def test_saved_note_message_includes_interpretation_summary(tmp_path):
     assert "Luogo: CarpeEvolution Store" in message
     assert "Interpretazione:" in message
     assert "Giammarco Mengozzi forzato su negozio Giovedì" in message
+
+    summary = interpretation_summary(text)
+    assert summary is not None
+    assert "negozio" in summary
+    assert "lago" not in summary

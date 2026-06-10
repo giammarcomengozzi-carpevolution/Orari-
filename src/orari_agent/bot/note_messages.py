@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 
+from orari_agent.business_rules import ActivityId
 from orari_agent.weekly_input import parse_weekly_instruction
 
 
@@ -70,17 +71,28 @@ def interpretation_summary(text: str) -> str | None:
         summaries.append(
             f"Giammarco in lavoro esterno ({work.label}) {work.day} {work.start}-{work.end}."
         )
-    for coverage in [*instruction.forced_shop_coverage, *instruction.forced_lake_coverage]:
-        luogo = "negozio" if coverage.activity == "shop" else "lago"
+    for coverage in [
+        *instruction.forced_shop_coverage,
+        *instruction.forced_lake_coverage,
+    ]:
+        luogo = _activity_place_label(coverage.activity)
         summaries.append(
             f"{coverage.person} forzato su {luogo} {coverage.day} {coverage.start}-{coverage.end}."
         )
     for day in sorted(instruction.high_lake_booking_days):
         summaries.append(f"Carico alto al lago {day}: consigliata copertura extra.")
     for closure in instruction.exceptional_closures:
-        luogo = "lago" if closure.activity == "lake" else "negozio"
+        luogo = _activity_place_label(closure.activity)
         summaries.append(f"Chiusura eccezionale {luogo} {closure.day}.")
     for opening in instruction.exceptional_openings:
-        luogo = "lago" if opening.activity == "lake" else "negozio"
+        luogo = _activity_place_label(opening.activity)
         summaries.append(f"Apertura eccezionale {luogo} {opening.day}.")
     return " ".join(summaries[:3]) if summaries else None
+
+
+def _activity_place_label(activity: ActivityId) -> str:
+    if activity == ActivityId.SHOP:
+        return "negozio"
+    if activity == ActivityId.LAKE:
+        return "lago"
+    return activity.value
