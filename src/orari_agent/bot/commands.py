@@ -12,6 +12,11 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from orari_agent.storage.notes_repository import NotesRepository
+from orari_agent.storage.operational_memory_parser import parse_operational_memory
+from orari_agent.storage.operational_memory_repository import (
+    OperationalMemory,
+    OperationalMemoryRepository,
+)
 from orari_agent.storage.week_parser import (
     current_or_next_week_bounds,
     parse_note_metadata,
@@ -33,6 +38,10 @@ def _deps(
         context.application.bot_data["schedule_service"],
         context.application.bot_data["wife_calendar_repository"],
     )
+
+
+def _memory_repo(context: ContextTypes.DEFAULT_TYPE) -> OperationalMemoryRepository:
+    return context.application.bot_data["operational_memory_repository"]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -66,6 +75,12 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancella 12 — cancella la nota con ID 12\n"
         "/cancella_tutte confermo — archivia tutte le note attive della prossima settimana\n"
         "/cancella_tutte questa settimana confermo — archivia tutte le note attive della settimana scelta\n"
+
+        "/memoria — aiuto memoria operativa persistente\n"
+        "/memoria_aggiungi testo — salva ferie, assenze o vincoli futuri\n"
+        "/memoria_lista [mese] — mostra memorie attive\n"
+        "/memoria_cancella ID — archivia una memoria\n"
+        "/memoria_reset confermo — archivia tutte le memorie\n"
         "/moglie_set YYYY-MM-DD M — salva un codice del calendario moglie\n"
         "/moglie_importa_m date1,date2,... — importa più date M\n"
         "/importa_calendario_moglie — salva una foto calendario per import semi-manuale\n"
@@ -78,6 +93,168 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/reset_settimana dal 17 al 23 giugno confermo — archivia le note attive della settimana\n\n"
         "Puoi anche scrivere una frase normale: verrà salvata come nota, se non è un comando."
     )
+
+
+async def memoria(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    await update.effective_message.reply_text(
+        "Memoria operativa persistente:\n"
+        "• /memoria_aggiungi Lorenzo in ferie dal 10 al 15 agosto\n"
+        "• /memoria_aggiungi Angelo assente il 27 giugno\n"
+        "• /memoria_aggiungi Angelo non c’è il 3 settembre mattina\n"
+        "• /memoria_aggiungi Gianmarco dal commercialista ogni giovedì mattina\n"
+        "• /memoria_lista [luglio]\n"
+        "• /memoria_cancella ID\n"
+        "• /memoria_reset confermo\n\n"
+        "Puoi anche scrivere: ‘ricordati che ...’, ‘memorizza che ...’ "
+        "o ‘salva memoria ...’."
+    )
+
+
+async def memoria_aggiungi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    text = " ".join(context.args).strip()
+    if not text:
+        await update.effective_message.reply_text(
+            "Scrivi il testo dopo /memoria_aggiungi, ad esempio: "
+            "/memoria_aggiungi Angelo assente il 27 giugno"
+        )
+        return
+    memory = _save_memory_text(_memory_repo(context), text)
+    await update.effective_message.reply_text(_memory_saved_message(memory))
+
+
+async def memoria_lista(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    month_filter = context.args[0].lower() if context.args else None
+    memories = _memory_repo(context).list_active()
+    if month_filter:
+        memories = [
+            memory
+            for memory in memories
+            if _memory_matches_filter(memory, month_filter)
+        ]
+    if not memories:
+        await update.effective_message.reply_text(
+            "Nessuna memoria operativa attiva trovata."
+        )
+        return
+    lines = ["Memorie operative attive:"]
+    for memory in memories:
+        when = (
+            memory.recurrence_rule
+            or _format_memory_period(memory)
+            or "data non interpretata"
+        )
+        lines.append(
+            f"ID {memory.id} | {when} | {memory.person or 'persona non indicata'} "
+            f"| {memory.constraint_type} | {memory.raw_text}"
+        )
+    await update.effective_message.reply_text("\n".join(lines))
+
+
+async def memoria_cancella(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if not context.args or not context.args[0].isdigit():
+        await update.effective_message.reply_text("Uso: /memoria_cancella ID")
+        return
+    deleted = _memory_repo(context).delete(int(context.args[0]))
+    await update.effective_message.reply_text(
+        f"Memoria {context.args[0]} cancellata."
+        if deleted
+        else f"Memoria {context.args[0]} non trovata o già cancellata."
+    )
+
+
+async def memoria_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    if context.args != ["confermo"]:
+        await update.effective_message.reply_text(
+            "Per sicurezza, ripeti con: /memoria_reset confermo"
+        )
+        return
+    count = _memory_repo(context).reset()
+    await update.effective_message.reply_text(
+        f"Memoria operativa svuotata: {count} regole archiviate."
+    )
+
+
+def _save_memory_text(
+    repository: OperationalMemoryRepository, text: str
+) -> OperationalMemory:
+    return repository.add(parse_operational_memory(text), source="telegram")
+
+
+def _memory_saved_message(memory: OperationalMemory) -> str:
+    lines = [
+        f"Memoria salvata con ID {memory.id}.",
+        f"Testo: {memory.raw_text}",
+        f"Tipo: {memory.constraint_type}",
+        f"Persona: {memory.person or 'non indicata'}",
+    ]
+    period = _format_memory_period(memory)
+    if period:
+        lines.append(f"Periodo: {period}")
+    if memory.recurrence_rule:
+        lines.append(f"Ricorrenza: {memory.recurrence_rule}")
+    if memory.start_time and memory.end_time:
+        lines.append(f"Orario: {memory.start_time}-{memory.end_time}")
+    if memory.constraint_type == "promemoria_non_interpretato":
+        lines.append(
+            "Effetto: ho salvato il testo, ma non sono riuscito a trasformarlo "
+            "in un vincolo automatico. Verrà mostrato come promemoria "
+            "durante la generazione."
+        )
+    else:
+        lines.append(
+            "Effetto: il vincolo sarà applicato automaticamente agli orari "
+            "sovrapposti."
+        )
+    return "\n".join(lines)
+
+
+def _format_memory_period(memory: OperationalMemory) -> str | None:
+    if memory.start_date and memory.end_date and memory.start_date != memory.end_date:
+        return f"{memory.start_date} - {memory.end_date}"
+    return memory.start_date
+
+
+def _memory_matches_filter(memory: OperationalMemory, month_filter: str) -> bool:
+    if month_filter in (memory.raw_text or "").lower():
+        return True
+    month_numbers = {
+        "gennaio": "-01-",
+        "febbraio": "-02-",
+        "marzo": "-03-",
+        "aprile": "-04-",
+        "maggio": "-05-",
+        "giugno": "-06-",
+        "luglio": "-07-",
+        "agosto": "-08-",
+        "settembre": "-09-",
+        "ottobre": "-10-",
+        "novembre": "-11-",
+        "dicembre": "-12-",
+    }
+    token = month_numbers.get(month_filter)
+    if token is None:
+        return True
+    return token in (memory.start_date or "") or token in (memory.end_date or "")
 
 
 async def nota(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -332,6 +509,10 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lowered = text.lower()
     if lowered.startswith("genera orario") or lowered.startswith("genera l'orario"):
         await _generate_and_send(update, context, text, schedule_service)
+        return
+    if lowered.startswith(("ricordati che ", "memorizza che ", "salva memoria ")):
+        memory = _save_memory_text(_memory_repo(context), text)
+        await update.effective_message.reply_text(_memory_saved_message(memory))
         return
     note = notes_repository.add(text, parse_note_metadata(text))
     await update.effective_message.reply_text(
