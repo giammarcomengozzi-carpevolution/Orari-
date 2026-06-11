@@ -13,9 +13,11 @@ from telegram.ext import (
 from orari_agent.ai_agent import AiAgent, OpenAiResponsesClient
 from orari_agent.ai_tools import AiToolExecutor
 from orari_agent.config import BotConfig
+from orari_agent.voice import OpenAiAudioTranscriber
 from orari_agent.storage.db import connect
 from orari_agent.storage.ai_repository import AiConversationRepository
 from orari_agent.storage.notes_repository import NotesRepository
+from orari_agent.storage.voice_transcripts_repository import VoiceTranscriptsRepository
 from orari_agent.storage.operational_memory_repository import (
     OperationalMemoryRepository,
 )
@@ -35,6 +37,7 @@ def build_application(config: BotConfig) -> Application:
     wife_calendar_repository = WifeCalendarRepository(connection)
     operational_memory_repository = OperationalMemoryRepository(connection)
     ai_repository = AiConversationRepository(connection)
+    voice_transcripts_repository = VoiceTranscriptsRepository(connection)
     schedule_service = ScheduleService(
         notes_repository,
         schedules_repository,
@@ -55,6 +58,9 @@ def build_application(config: BotConfig) -> Application:
         OpenAiResponsesClient(config.openai_api_key) if config.openai_api_key else None
     )
     ai_agent = AiAgent(ai_responder, ai_tools, ai_repository)
+    audio_transcriber = (
+        OpenAiAudioTranscriber(config.openai_api_key) if config.openai_api_key else None
+    )
 
     application = ApplicationBuilder().token(config.telegram_bot_token).build()
     application.bot_data["allowed_user_id"] = config.allowed_telegram_user_id
@@ -70,6 +76,10 @@ def build_application(config: BotConfig) -> Application:
     application.bot_data["backup_dir"] = config.database_path.parent / "backups"
     application.bot_data["ai_agent"] = ai_agent
     application.bot_data["ai_repository"] = ai_repository
+    application.bot_data["voice_transcripts_repository"] = voice_transcripts_repository
+    application.bot_data["audio_transcriber"] = audio_transcriber
+    application.bot_data["audio_dir"] = config.database_path.parent / "audio"
+    application.bot_data["voice_debug"] = config.voice_debug
 
     application.add_handler(CommandHandler("start", commands.start))
     application.add_handler(CommandHandler("aiuto", commands.aiuto))
@@ -117,6 +127,14 @@ def build_application(config: BotConfig) -> Application:
     )
     application.add_handler(CommandHandler("genera", commands.genera))
     application.add_handler(CommandHandler("reset_settimana", commands.reset_settimana))
+    application.add_handler(
+        CommandHandler("trascrivi_ultimo", commands.trascrivi_ultimo)
+    )
+    application.add_handler(MessageHandler(filters.VOICE, commands.voice_message))
+    application.add_handler(MessageHandler(filters.AUDIO, commands.voice_message))
+    application.add_handler(
+        MessageHandler(filters.Document.AUDIO, commands.voice_message)
+    )
     application.add_handler(MessageHandler(filters.PHOTO, commands.wife_calendar_image))
     application.add_handler(
         MessageHandler(filters.Document.ALL, commands.wife_calendar_document)

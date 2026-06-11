@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import re
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,17 @@ from uuid import uuid4
 
 from orari_agent.ai_agent import AiAgent
 from orari_agent.backup import collect_backup_info, create_backup
+from orari_agent.storage.voice_transcripts_repository import VoiceTranscriptsRepository
+from orari_agent.voice import (
+    AudioTooLargeError,
+    AudioTranscriber,
+    AudioTranscriptionError,
+    OpenAiUnavailableError,
+    SUPPORTED_AUDIO_EXTENSIONS,
+    supported_audio_extension,
+    supported_audio_mime_type,
+    validate_audio_size,
+)
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -99,8 +111,9 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/moglie_reset confermo — svuota il calendario moglie\n"
         "/genera — genera il PDF della prossima settimana\n"
         "/genera dal 17 al 23 giugno — genera una settimana specifica\n"
-        "/reset_settimana dal 17 al 23 giugno confermo — archivia le note attive della settimana\n\n"
-        "Puoi anche scrivere una frase normale: verrà salvata come nota, se non è un comando."
+        "/reset_settimana dal 17 al 23 giugno confermo — archivia le note attive della settimana\n"
+        "/trascrivi_ultimo — mostra l’ultima trascrizione vocale salvata\n\n"
+        "Puoi anche scrivere una frase normale o mandare un vocale: verrà interpretato dall’AI."
     )
 
 
@@ -733,32 +746,232 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (update.effective_message.text or "").strip()
     if not text:
         return
+    await _handle_ai_agent_text(update, context, text)
+
+
+async def trascrivi_ultimo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    repository: VoiceTranscriptsRepository | None = context.application.bot_data.get(
+        "voice_transcripts_repository"
+    )
+    if repository is None:
+        await update.effective_message.reply_text(
+            "Archivio trascrizioni non configurato."
+        )
+        return
+    user_id = _effective_user_id(update, allowed_user_id)
+    transcript = repository.latest_for_user(user_id)
+    if transcript is None:
+        await update.effective_message.reply_text(
+            "Nessuna trascrizione vocale salvata."
+        )
+        return
+    await update.effective_message.reply_text(
+        "🎤 Ultima trascrizione:\n"
+        f"{_preview_transcript(transcript.transcript)}\n\n"
+        f"File: {transcript.file_name}\n"
+        f"Data: {transcript.created_at}"
+    )
+
+
+async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+
+    transcriber: AudioTranscriber | None = context.application.bot_data.get(
+        "audio_transcriber"
+    )
+    if transcriber is None:
+        await update.effective_message.reply_text(
+            "Trascrizione non disponibile: controlla OPENAI_API_KEY."
+        )
+        return
+
+    try:
+        attachment, file_name = _audio_attachment(update)
+        validate_audio_size(getattr(attachment, "file_size", None))
+    except AudioTooLargeError:
+        await update.effective_message.reply_text("Messaggio vocale troppo grande.")
+        return
+    except ValueError:
+        await update.effective_message.reply_text(
+            "Formato audio non supportato. Usa ogg, mp3, m4a o wav."
+        )
+        return
+
+    audio_dir = Path(context.application.bot_data.get("audio_dir", "data/audio"))
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = audio_dir / _safe_audio_filename(file_name)
+
+    try:
+        telegram_file = await attachment.get_file()
+        await telegram_file.download_to_drive(custom_path=audio_path)
+        validate_audio_size(audio_path.stat().st_size)
+        transcript = transcriber.transcribe(audio_path)
+    except AudioTooLargeError:
+        _cleanup_audio_file(audio_path, context)
+        await update.effective_message.reply_text("Messaggio vocale troppo grande.")
+        return
+    except OpenAiUnavailableError:
+        _cleanup_audio_file(audio_path, context)
+        await update.effective_message.reply_text(
+            "Trascrizione non disponibile: controlla OPENAI_API_KEY."
+        )
+        return
+    except AudioTranscriptionError:
+        _cleanup_audio_file(audio_path, context)
+        await update.effective_message.reply_text(
+            "Non sono riuscito a trascrivere il messaggio vocale."
+        )
+        return
+    except Exception:  # noqa: BLE001 - errore I/O Telegram/OpenAI normalizzato per chat
+        _cleanup_audio_file(audio_path, context)
+        await update.effective_message.reply_text(
+            "Non sono riuscito a trascrivere il messaggio vocale."
+        )
+        return
+
+    if not transcript.strip():
+        _cleanup_audio_file(audio_path, context)
+        await update.effective_message.reply_text(
+            "Non sono riuscito a trascrivere il messaggio vocale."
+        )
+        return
+
+    repository: VoiceTranscriptsRepository | None = context.application.bot_data.get(
+        "voice_transcripts_repository"
+    )
+    user_id = _effective_user_id(update, allowed_user_id)
+    if repository is not None:
+        repository.add(audio_path.name, transcript, user_id)
+    if context.application.bot_data.get("voice_debug", False):
+        audio_path.with_suffix(audio_path.suffix + ".txt").write_text(
+            transcript, encoding="utf-8"
+        )
+    else:
+        _cleanup_audio_file(audio_path, context)
+
+    await _handle_ai_agent_text(
+        update,
+        context,
+        transcript,
+        reply_prefix=f"🎤 Trascrizione:\n{_preview_transcript(transcript)}\n\n🤖 Interpretazione:\n",
+    )
+
+
+async def _handle_ai_agent_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    reply_prefix: str = "",
+) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
     ai_agent: AiAgent | None = context.application.bot_data.get("ai_agent")
     if ai_agent is None:
         await update.effective_message.reply_text(
-            "Modalità AI non configurata: manca OPENAI_API_KEY."
+            f"{reply_prefix}Modalità AI non configurata: manca OPENAI_API_KEY."
         )
         return
-    user_id = (
-        int(update.effective_user.id) if update.effective_user else allowed_user_id
-    )
+    user_id = _effective_user_id(update, allowed_user_id)
     result = ai_agent.handle_message(user_id, text)
     generated_results = [
         tool_result.generated_schedule
         for tool_result in result.tool_results
         if tool_result.generated_schedule is not None
     ]
-    if generated_results:
-        await update.effective_message.reply_text(result.user_message)
-        for generated in generated_results:
-            with generated.pdf_path.open("rb") as pdf_file:
-                await update.effective_message.reply_document(
-                    document=pdf_file,
-                    filename=generated.pdf_path.name,
-                    caption=f"{generated.summary}\n{_warnings_text(generated.warnings)}",
-                )
+    await update.effective_message.reply_text(f"{reply_prefix}{result.user_message}")
+    for generated in generated_results:
+        with generated.pdf_path.open("rb") as pdf_file:
+            await update.effective_message.reply_document(
+                document=pdf_file,
+                filename=generated.pdf_path.name,
+                caption=f"{generated.summary}\n{_warnings_text(generated.warnings)}",
+            )
+
+
+def _effective_user_id(update: Update, allowed_user_id: int) -> int:
+    return int(update.effective_user.id) if update.effective_user else allowed_user_id
+
+
+def _preview_transcript(transcript: str, limit: int = 1000) -> str:
+    clean = transcript.strip()
+    if len(clean) <= limit:
+        return clean
+    return clean[:limit].rstrip() + "…\n[Trascrizione completa salvata internamente.]"
+
+
+def _audio_attachment(update: Update):
+    message = update.effective_message
+    if message.voice is not None:
+        file_unique = getattr(message.voice, "file_unique_id", "voice") or "voice"
+        return message.voice, f"voice_{file_unique}.ogg"
+    if message.audio is not None:
+        file_name = getattr(message.audio, "file_name", "") or "audio"
+        mime_type = getattr(message.audio, "mime_type", None)
+        return message.audio, _audio_filename_with_supported_extension(
+            file_name, mime_type
+        )
+    if message.document is not None:
+        document = message.document
+        file_name = getattr(document, "file_name", "") or "audio"
+        mime_type = getattr(document, "mime_type", None)
+        if not (
+            supported_audio_mime_type(mime_type) or supported_audio_extension(file_name)
+        ):
+            raise ValueError("Documento non audio")
+        return document, _audio_filename_with_supported_extension(file_name, mime_type)
+    raise ValueError("Nessun audio trovato")
+
+
+def _audio_filename_with_supported_extension(
+    file_name: str, mime_type: str | None
+) -> str:
+    if supported_audio_extension(file_name):
+        return file_name
+    mime_extensions = {
+        "audio/ogg": ".ogg",
+        "audio/oga": ".ogg",
+        "audio/mpeg": ".mp3",
+        "audio/mp3": ".mp3",
+        "audio/mp4": ".m4a",
+        "audio/m4a": ".m4a",
+        "audio/x-m4a": ".m4a",
+        "audio/wav": ".wav",
+        "audio/wave": ".wav",
+        "audio/x-wav": ".wav",
+    }
+    clean_mime = (mime_type or "").lower().split(";", 1)[0].strip()
+    guessed_extension = mime_extensions.get(clean_mime)
+    guessed_extension = (
+        guessed_extension or mimetypes.guess_extension(clean_mime) or ".ogg"
+    )
+    if guessed_extension == ".oga":
+        guessed_extension = ".ogg"
+    if guessed_extension not in SUPPORTED_AUDIO_EXTENSIONS:
+        raise ValueError("Formato audio non supportato")
+    return f"{Path(file_name).stem or 'audio'}{guessed_extension}"
+
+
+def _safe_audio_filename(file_name: str) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(file_name).name).strip("._")
+    if not safe_name:
+        safe_name = "audio.ogg"
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in SUPPORTED_AUDIO_EXTENSIONS:
+        safe_name += ".ogg"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{timestamp}_{uuid4().hex[:8]}_{safe_name}"
+
+
+def _cleanup_audio_file(audio_path: Path, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if context.application.bot_data.get("voice_debug", False):
         return
-    await update.effective_message.reply_text(result.user_message)
+    audio_path.unlink(missing_ok=True)
 
 
 async def _generate_and_send(

@@ -21,6 +21,7 @@ class BotConfig:
     database_path: Path
     output_dir: Path
     openai_api_key: str | None = None
+    voice_debug: bool = False
 
 
 def load_config(env_file: str | Path = ".env") -> BotConfig:
@@ -46,10 +47,19 @@ def load_config(env_file: str | Path = ".env") -> BotConfig:
     database_path = Path(os.getenv("DATABASE_PATH", "data/orari_bot.sqlite3"))
     output_dir = Path(os.getenv("OUTPUT_DIR", "output"))
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip() or None
+    voice_debug = os.getenv("VOICE_DEBUG", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "si",
+        "sì",
+    }
     return BotConfig(
         telegram_bot_token=token,
         allowed_telegram_user_id=allowed_user_id,
         database_path=database_path,
         output_dir=output_dir,
         openai_api_key=openai_api_key,
+        voice_debug=voice_debug,
     )

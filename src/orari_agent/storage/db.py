@@ -86,6 +86,17 @@ CREATE TABLE IF NOT EXISTS ai_pending_actions (
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS voice_transcripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    transcript TEXT NOT NULL,
+    user_id INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_transcripts_user_created
+ON voice_transcripts(user_id, created_at);
 """
 
 
