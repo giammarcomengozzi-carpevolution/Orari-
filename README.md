@@ -282,6 +282,7 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - valida l'orario e riepiloga eventuali avvisi/conflitti;
 - crea un PDF A4 orizzontale pronto da inoltrare su Telegram o WhatsApp;
 - invia il PDF direttamente nella chat Telegram;
+- accetta note vocali Telegram, file audio e documenti con MIME audio, li trascrive con OpenAI speech-to-text e passa il testo allo stesso AI Agent dei messaggi scritti;
 - mantiene una **memoria operativa persistente** per ferie, assenze future, appuntamenti ricorrenti e vincoli non legati solo alla settimana corrente;
 - mantiene la tabella `wife_calendar` compilabile manualmente: solo il codice `M` blocca Giammarco dall’apertura lago alle 07:30.
 
@@ -325,8 +326,9 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - `/genera` — genera il PDF della settimana prossima.
 - `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata. Il bot invia anche un riepilogo breve con intervallo settimana, numero di note usate, numero di memorie operative applicate, numero di avvisi/conflitti e nome del file PDF allegato.
 - `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
+- `/trascrivi_ultimo` — mostra l’ultima trascrizione vocale salvata per l’utente autorizzato, utile per debug.
 
-Puoi anche scrivere messaggi normali, ad esempio:
+Puoi anche scrivere messaggi normali o inviare un vocale, ad esempio:
 
 ```text
 Giovedì Gianmarco deve stare in negozio tutto il giorno per fatture.
@@ -701,6 +703,7 @@ La configurazione standard usa:
 
 - `data/orari_bot.sqlite3` per note, memoria operativa, cronologia PDF e calendario moglie;
 - `data/imports/` per file ricevuti da Telegram, inclusi Excel e immagini calendario moglie;
+- `data/audio/` per audio scaricati temporaneamente dalle note vocali e dagli allegati audio;
 - `data/backups/` per gli ZIP creati da `/backup`.
 
 Il database SQLite sopravvive al riavvio del processo e del VPS finché non viene cancellato il file in `data/`. Sopravvivono quindi anche:
@@ -708,6 +711,7 @@ Il database SQLite sopravvive al riavvio del processo e del VPS finché non vien
 - note settimanali;
 - memoria operativa;
 - import calendario moglie;
+- trascrizioni vocali nella tabella `voice_transcripts`;
 - cronologia essenziale delle generazioni.
 
 ## Import Excel calendario moglie
@@ -774,12 +778,12 @@ Mostra percorso database, numero note, numero memorie operative, numero righe ca
 Il bot Telegram mantiene due modalità complementari:
 
 - **Modalità comando**: i comandi espliciti (`/nota`, `/lista`, `/genera`, `/memoria_aggiungi`, `/memoria_lista`, `/carica_calendario_moglie`, `/calendario_moglie_info`, `/backup`, `/backup_info` e gli altri comandi amministrativi) continuano a usare direttamente i servizi deterministici Python. Questa modalità non richiede OpenAI e resta disponibile anche se la chiave AI manca.
-- **Modalità AI**: i normali messaggi testuali non preceduti da `/` passano dal layer AI. L'AI interpreta l'italiano naturale, decide un'intenzione strutturata e richiama i tool interni già esistenti senza sostituire il motore di scheduling.
+- **Modalità AI**: i normali messaggi testuali non preceduti da `/` passano dal layer AI. Anche le note vocali, dopo la trascrizione OpenAI, entrano nello stesso identico flusso tramite `AiAgent.handle_message()`. L'AI interpreta l'italiano naturale, decide un'intenzione strutturata e richiama i tool interni già esistenti senza sostituire il motore di scheduling.
 
 Flusso della modalità AI:
 
 ```text
-Messaggio Telegram libero
+Messaggio Telegram libero o trascrizione vocale
 → layer AI
 → OpenAI Responses API
 → JSON strutturato con tool call
@@ -811,7 +815,54 @@ ALLOWED_TELEGRAM_USER_ID=...
 DATABASE_PATH=data/orari_bot.sqlite3
 OUTPUT_DIR=output
 OPENAI_API_KEY=sk-...
+VOICE_DEBUG=false
 ```
+
+### Messaggi vocali e file audio
+
+Il bot supporta lo stesso flusso AI anche quando il vincolo arriva come audio:
+
+```text
+Nota vocale / file audio Telegram
+→ download temporaneo in data/audio/
+→ OpenAI audio transcription API tramite SDK openai
+→ trascrizione testuale
+→ stesso AiAgent.handle_message() usato dai messaggi scritti
+→ tool interni e salvataggio vincoli identici alla modalità testo
+→ risposta Telegram con trascrizione e interpretazione
+```
+
+Formati supportati:
+
+- `ogg` per le note vocali Telegram;
+- `mp3`;
+- `m4a`;
+- `wav`.
+
+Sono accettati:
+
+- voice note Telegram;
+- allegati audio Telegram;
+- documenti Telegram con MIME type audio.
+
+La risposta mostra:
+
+```text
+🎤 Trascrizione:
+...
+
+🤖 Interpretazione:
+...
+```
+
+Se la trascrizione supera 1000 caratteri, in chat viene mostrata solo l’anteprima; il testo completo resta salvato nella tabella `voice_transcripts` ed è recuperabile con `/trascrivi_ultimo`. I file audio vengono salvati temporaneamente in `data/audio/` e cancellati dopo una trascrizione riuscita. Con `VOICE_DEBUG=true`, invece, il bot conserva sia il file audio sia un file `.txt` accanto all’audio con la trascrizione completa.
+
+Troubleshooting vocale:
+
+- `Trascrizione non disponibile: controlla OPENAI_API_KEY.` — manca la chiave OpenAI nel `.env` o nel servizio systemd.
+- `Non sono riuscito a trascrivere il messaggio vocale.` — OpenAI o il download Telegram hanno restituito errore, oppure l’audio non contiene testo utilizzabile.
+- `Messaggio vocale troppo grande.` — il file supera il limite della pipeline di trascrizione.
+- `Formato audio non supportato. Usa ogg, mp3, m4a o wav.` — inviare nuovamente il file in uno dei formati supportati.
 
 ### Riavvio del servizio in produzione
 
