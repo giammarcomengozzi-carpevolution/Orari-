@@ -105,7 +105,9 @@ def current_or_next_week_bounds(today: date | None = None) -> tuple[date, date]:
     return week_bounds_for(base)
 
 
-def parse_week_request(text: str | None, today: date | None = None) -> tuple[date, date]:
+def parse_week_request(
+    text: str | None, today: date | None = None
+) -> tuple[date, date]:
     """Interpreta richieste tipo `settimana prossima` o `dal 17 al 23 giugno`.
 
     La scelta è deterministica: senza una settimana esplicita torna la prossima
@@ -192,7 +194,9 @@ def _parse_explicit_range(text: str, base: date) -> tuple[date, date] | None:
 
 
 def _parse_single_date(text: str, base: date) -> date | None:
-    match = re.search(r"\b(?:settimana\s+del\s+)?(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b", text)
+    match = re.search(
+        r"\b(?:settimana\s+del\s+)?(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?\b", text
+    )
     if not match:
         match_iso = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text)
         if match_iso:
@@ -216,11 +220,28 @@ def _interpreted_day(text: str, week_start: date) -> date | None:
 def _detect_person(text: str) -> str | None:
     lowered = _normalize(text)
     for alias, person in PEOPLE_ALIASES.items():
+        if alias == "io":
+            continue
         if alias in lowered:
             return person
-    if re.search(r"\bio\b", lowered):
+    if _has_first_person_reference(lowered):
         return PEOPLE_ALIASES["giammarco"]
     return None
+
+
+def _has_first_person_reference(text: str) -> bool:
+    return any(
+        re.search(pattern, text)
+        for pattern in (
+            r"\bio\b",
+            r"\bsono\b",
+            r"\bsaro\b",
+            r"\bsarò\b",
+            r"\bdevo\b",
+            r"\bvado\b",
+            r"\bnon\s+ci\s+sono\b",
+        )
+    )
 
 
 def _detect_location(text: str) -> str | None:

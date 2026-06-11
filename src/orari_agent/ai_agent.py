@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -145,7 +146,13 @@ class AiAgent:
             )
 
         return AiHandleResult(
-            _compose_results_message(decision.user_message, results), results
+            _compose_results_message(
+                _safe_user_message_for_results(
+                    clean_text, decision.user_message, tool_calls_payload
+                ),
+                results,
+            ),
+            results,
         )
 
     def _requires_confirmation(self, decision: AiDecision) -> bool:
@@ -196,6 +203,56 @@ def parse_ai_decision(raw_json: str) -> AiDecision:
     )
 
 
+def _safe_user_message_for_results(
+    original_message: str,
+    user_message: str,
+    tool_calls: list[dict[str, Any]],
+) -> str:
+    """Evita riepiloghi incoerenti quando il testo in prima persona è stato parsato."""
+
+    if not _has_first_person_reference(original_message):
+        return user_message
+
+    weekly_note_texts = [
+        str((call.get("arguments") or {}).get("text", "")).strip()
+        for call in tool_calls
+        if call.get("name") == "add_weekly_note"
+        and isinstance(call.get("arguments"), dict)
+    ]
+    if not weekly_note_texts:
+        return user_message
+
+    has_gianmarco_constraint = any(
+        re.search(r"\b(?:gianmarco|giammarco|mengozzi)\b", text, re.IGNORECASE)
+        for text in weekly_note_texts
+    )
+    if not has_gianmarco_constraint:
+        return user_message
+
+    if not re.search(r"\blorenzo\b", user_message, re.IGNORECASE):
+        return user_message
+
+    lines = ["Ho interpretato e salvo questi vincoli separati:"]
+    lines.extend(f"- {text}" for text in weekly_note_texts if text)
+    return "\n".join(lines)
+
+
+def _has_first_person_reference(text: str) -> bool:
+    normalized = text.lower().replace("’", "'")
+    return any(
+        re.search(pattern, normalized)
+        for pattern in (
+            r"\bio\b",
+            r"\bsono\b",
+            r"\bsaro\b",
+            r"\bsarò\b",
+            r"\bdevo\b",
+            r"\bvado\b",
+            r"\bnon\s+ci\s+sono\b",
+        )
+    )
+
+
 def _compose_results_message(
     user_message: str, results: list[ToolExecutionResult]
 ) -> str:
@@ -213,7 +270,10 @@ def _response_json_schema() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "user_message": {"type": "string"},
+                "user_message": {
+                    "type": "string",
+                    "description": "Breve riepilogo in italiano dei vincoli interpretati. Deve usare la stessa persona indicata negli arguments.text delle tool call; i riferimenti in prima persona dell'utente autorizzato sono sempre Gianmarco Mengozzi.",
+                },
                 "action": {"type": ["string", "null"]},
                 "tool_calls": {
                     "type": "array",
@@ -225,6 +285,7 @@ def _response_json_schema() -> dict[str, Any]:
                             "arguments": {
                                 "type": "object",
                                 "additionalProperties": True,
+                                "description": "Per add_weekly_note, text deve contenere un solo vincolo atomico con persona esplicita quando nota (es. Gianmarco Mengozzi, Lorenzo Sansavini, Angelo Antonelli) e week_request separato.",
                             },
                         },
                         "required": ["name", "arguments"],
@@ -252,7 +313,12 @@ def _system_prompt() -> str:
 Sei l'assistente AI privato di Gianmarco per gli orari di CarpeEvolution Store e Tenuta del Germano.
 Rispondi esclusivamente con JSON valido con queste chiavi: user_message, action, tool_calls, needs_confirmation, confidence.
 Non inventare dati salvati: usa list_* se devi consultare dati. Se non sei sicuro, fai una domanda e non chiamare tool.
-Riassumi sempre i vincoli interpretati dopo un salvataggio.
+Riassumi sempre i vincoli interpretati dopo un salvataggio e assicurati che user_message sia coerente con la persona salvata in ogni tool_call.
+Regola identità fondamentale:
+- I messaggi in prima persona dell'utente Telegram autorizzato si riferiscono sempre a Gianmarco Mengozzi.
+- Frasi come “sono dal commercialista”, “io sono in negozio”, “devo andare in banca” e “non ci sono” sono vincoli di Gianmarco Mengozzi, non di Lorenzo o Angelo.
+- Solo nomi espliciti sovrascrivono questa regola: “Lorenzo esce alle 15” è Lorenzo Sansavini; “Angelo non c’è venerdì mattina” è Angelo Antonelli.
+- Se un messaggio contiene più vincoli per persone diverse, crea tool call add_weekly_note separate (una nota atomica per vincolo/persona) o sotto-note chiaramente separate; non mescolare mai la persona nel riepilogo.
 Business context:
 - Gianmarco Mengozzi: titolare/manager/jolly; può coprire negozio o lago, preferisci lago per copertura extra salvo istruzioni diverse.
 - Angelo Antonelli: principalmente CarpeEvolution Store.

@@ -329,3 +329,108 @@ def test_ai_response_summarizes_saved_constraints(tmp_path):
 
     assert "Angelo assente venerdì mattina" in result.user_message
     assert "Settimana:" in result.user_message
+
+
+def test_first_person_weekly_note_maps_to_gianmarco(tmp_path):
+    agent, notes, *_ = _agent(
+        tmp_path,
+        {
+            "user_message": "Salvo: Gianmarco Mengozzi dal commercialista giovedì 10-12.",
+            "action": "save_note",
+            "tool_calls": [
+                {
+                    "name": "add_weekly_note",
+                    "arguments": {
+                        "text": "sono dal commercialista giovedì dalle 10 alle 12",
+                        "week_request": "settimana prossima",
+                    },
+                }
+            ],
+            "needs_confirmation": False,
+            "confidence": "high",
+        },
+    )
+
+    agent.handle_message(123, "sono dal commercialista giovedì dalle 10 alle 12")
+
+    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    assert len(saved) == 1
+    assert saved[0].person == "Giammarco Mengozzi"
+    assert saved[0].constraint_type == "impegno_esterno"
+
+
+def test_ai_multi_person_message_saves_separate_constraints(tmp_path):
+    agent, notes, *_ = _agent(
+        tmp_path,
+        {
+            "user_message": (
+                "Salvo due vincoli separati: Gianmarco Mengozzi dal commercialista "
+                "giovedì 10-12; Lorenzo Sansavini esce sabato alle 15."
+            ),
+            "action": "save_note",
+            "tool_calls": [
+                {
+                    "name": "add_weekly_note",
+                    "arguments": {
+                        "text": "Giovedì Gianmarco Mengozzi dal commercialista dalle 10 alle 12",
+                        "week_request": "settimana prossima",
+                    },
+                },
+                {
+                    "name": "add_weekly_note",
+                    "arguments": {
+                        "text": "Sabato Lorenzo Sansavini esce alle 15",
+                        "week_request": "settimana prossima",
+                    },
+                },
+            ],
+            "needs_confirmation": False,
+            "confidence": "high",
+        },
+    )
+
+    result = agent.handle_message(
+        123,
+        "giovedì sono dal commercialista e sabato Lorenzo esce alle 15",
+    )
+
+    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    assert len(saved) == 2
+    assert [note.person for note in saved] == [
+        "Giammarco Mengozzi",
+        "Lorenzo Sansavini",
+    ]
+    assert "Gianmarco Mengozzi dal commercialista" in result.user_message
+    assert "Lorenzo Sansavini esce" in result.user_message
+
+
+def test_ai_reply_summary_does_not_assign_first_person_commitment_to_lorenzo(tmp_path):
+    agent, notes, *_ = _agent(
+        tmp_path,
+        {
+            "user_message": "Ho registrato che giovedì prossimo Lorenzo sarà dal commercialista.",
+            "action": "save_note",
+            "tool_calls": [
+                {
+                    "name": "add_weekly_note",
+                    "arguments": {
+                        "text": "Giovedì Gianmarco Mengozzi dal commercialista dalle 10 alle 12",
+                        "week_request": "settimana prossima",
+                    },
+                }
+            ],
+            "needs_confirmation": False,
+            "confidence": "high",
+        },
+    )
+
+    result = agent.handle_message(
+        123,
+        "sono dal commercialista giovedì dalle 10 alle 12",
+    )
+
+    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    assert len(saved) == 1
+    assert saved[0].person == "Giammarco Mengozzi"
+    assert "Lorenzo sarà dal commercialista" not in result.user_message
+    assert "Gianmarco Mengozzi dal commercialista" in result.user_message
