@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS wife_calendar_imports (
     summary TEXT NOT NULL,
     warnings TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ai_pending_actions (
+    user_id INTEGER PRIMARY KEY,
+    pending_action TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 

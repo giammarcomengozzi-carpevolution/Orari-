@@ -10,8 +10,11 @@ from telegram.ext import (
     filters,
 )
 
+from orari_agent.ai_agent import AiAgent, OpenAiResponsesClient
+from orari_agent.ai_tools import AiToolExecutor
 from orari_agent.config import BotConfig
 from orari_agent.storage.db import connect
+from orari_agent.storage.ai_repository import AiConversationRepository
 from orari_agent.storage.notes_repository import NotesRepository
 from orari_agent.storage.operational_memory_repository import (
     OperationalMemoryRepository,
@@ -31,6 +34,7 @@ def build_application(config: BotConfig) -> Application:
     schedules_repository = SchedulesRepository(connection)
     wife_calendar_repository = WifeCalendarRepository(connection)
     operational_memory_repository = OperationalMemoryRepository(connection)
+    ai_repository = AiConversationRepository(connection)
     schedule_service = ScheduleService(
         notes_repository,
         schedules_repository,
@@ -38,6 +42,19 @@ def build_application(config: BotConfig) -> Application:
         operational_memory_repository,
         config.output_dir,
     )
+    ai_tools = AiToolExecutor(
+        notes_repository,
+        operational_memory_repository,
+        schedule_service,
+        wife_calendar_repository,
+        config.database_path,
+        config.database_path.parent,
+        config.database_path.parent / "backups",
+    )
+    ai_responder = (
+        OpenAiResponsesClient(config.openai_api_key) if config.openai_api_key else None
+    )
+    ai_agent = AiAgent(ai_responder, ai_tools, ai_repository)
 
     application = ApplicationBuilder().token(config.telegram_bot_token).build()
     application.bot_data["allowed_user_id"] = config.allowed_telegram_user_id
@@ -51,6 +68,8 @@ def build_application(config: BotConfig) -> Application:
     application.bot_data["database_path"] = config.database_path
     application.bot_data["data_dir"] = config.database_path.parent
     application.bot_data["backup_dir"] = config.database_path.parent / "backups"
+    application.bot_data["ai_agent"] = ai_agent
+    application.bot_data["ai_repository"] = ai_repository
 
     application.add_handler(CommandHandler("start", commands.start))
     application.add_handler(CommandHandler("aiuto", commands.aiuto))
