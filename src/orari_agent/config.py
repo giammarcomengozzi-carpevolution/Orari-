@@ -20,6 +20,7 @@ class BotConfig:
     allowed_telegram_user_id: int
     database_path: Path
     output_dir: Path
+    openai_api_key: str | None = None
 
 
 def load_config(env_file: str | Path = ".env") -> BotConfig:
@@ -38,13 +39,17 @@ def load_config(env_file: str | Path = ".env") -> BotConfig:
     try:
         allowed_user_id = int(raw_user_id)
     except ValueError as exc:
-        raise RuntimeError("ALLOWED_TELEGRAM_USER_ID deve essere un numero intero.") from exc
+        raise RuntimeError(
+            "ALLOWED_TELEGRAM_USER_ID deve essere un numero intero."
+        ) from exc
 
     database_path = Path(os.getenv("DATABASE_PATH", "data/orari_bot.sqlite3"))
     output_dir = Path(os.getenv("OUTPUT_DIR", "output"))
+    openai_api_key = os.getenv("OPENAI_API_KEY", "").strip() or None
     return BotConfig(
         telegram_bot_token=token,
         allowed_telegram_user_id=allowed_user_id,
         database_path=database_path,
         output_dir=output_dir,
+        openai_api_key=openai_api_key,
     )

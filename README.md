@@ -768,3 +768,128 @@ Mostra percorso database, numero note, numero memorie operative, numero righe ca
 4. Generare l'orario con `/genera`.
 5. Condividere il PDF ricevuto dal bot.
 6. Creare un backup con `/backup` dopo import o modifiche importanti.
+
+## Modalità Telegram: comandi deterministici e AI Agent
+
+Il bot Telegram mantiene due modalità complementari:
+
+- **Modalità comando**: i comandi espliciti (`/nota`, `/lista`, `/genera`, `/memoria_aggiungi`, `/memoria_lista`, `/carica_calendario_moglie`, `/calendario_moglie_info`, `/backup`, `/backup_info` e gli altri comandi amministrativi) continuano a usare direttamente i servizi deterministici Python. Questa modalità non richiede OpenAI e resta disponibile anche se la chiave AI manca.
+- **Modalità AI**: i normali messaggi testuali non preceduti da `/` passano dal layer AI. L'AI interpreta l'italiano naturale, decide un'intenzione strutturata e richiama i tool interni già esistenti senza sostituire il motore di scheduling.
+
+Flusso della modalità AI:
+
+```text
+Messaggio Telegram libero
+→ layer AI
+→ OpenAI Responses API
+→ JSON strutturato con tool call
+→ repository/servizi Python esistenti
+→ risposta Telegram naturale ed eventuale PDF
+```
+
+Se `OPENAI_API_KEY` non è configurata, il bot parte comunque e i comandi continuano a funzionare. In quel caso i messaggi liberi ricevono:
+
+```text
+Modalità AI non configurata: manca OPENAI_API_KEY.
+```
+
+### Configurare OPENAI_API_KEY
+
+1. Crea una chiave API dal pannello OpenAI: <https://platform.openai.com/api-keys>.
+2. Apri o crea il file `.env` nella directory di deploy.
+3. Aggiungi la variabile:
+
+```env
+OPENAI_API_KEY=sk-...
+```
+
+Le altre variabili Telegram restano necessarie:
+
+```env
+TELEGRAM_BOT_TOKEN=...
+ALLOWED_TELEGRAM_USER_ID=...
+DATABASE_PATH=data/orari_bot.sqlite3
+OUTPUT_DIR=output
+OPENAI_API_KEY=sk-...
+```
+
+### Riavvio del servizio in produzione
+
+Dopo aver aggiornato `.env` sul VPS Hetzner:
+
+```bash
+sudo systemctl restart orari-bot
+```
+
+Per controllare lo stato:
+
+```bash
+sudo systemctl status orari-bot
+```
+
+### Cosa sa l'AI del contesto operativo
+
+L'assistente AI conosce le regole principali:
+
+- Gianmarco Mengozzi è titolare/manager/jolly e può coprire negozio o lago; se serve copertura extra, preferisce il lago salvo assegnazioni esplicite.
+- Angelo Antonelli copre principalmente CarpeEvolution Store.
+- Lorenzo Sansavini copre principalmente Tenuta del Germano/lago, con 40 ore, 5 giorni, normalmente mercoledì-domenica; lunedì chiuso e martedì riposo preferito.
+- Tenuta del Germano è aperta martedì-domenica 07:30-18:30 e chiusa lunedì.
+- CarpeEvolution Store è aperto martedì-sabato 09:00-12:30 e 15:30-19:30, chiuso domenica e lunedì.
+- Nel calendario moglie conta solo il codice `M`: se una data ha `M`, Gianmarco non può aprire il lago alle 07:30. Dati luglio/agosto mancanti non creano vincoli.
+
+### Tool AI disponibili
+
+Il layer AI può richiamare solo funzioni interne controllate:
+
+- `add_weekly_note(text, week_request)`
+- `list_weekly_notes(week_request)`
+- `delete_weekly_note(note_id)`
+- `delete_weekly_notes_for_week(week_request)`
+- `add_operational_memory(text)`
+- `list_operational_memory()`
+- `generate_schedule(week_request)`
+- `get_wife_calendar_info()`
+- `list_wife_calendar_m_dates()`
+- `backup_info()`
+- `create_backup()`
+
+Le azioni distruttive, come cancellare tutte le note di una settimana o futuri reset di memoria/calendario, non vengono eseguite al primo messaggio: il bot chiede conferma con `Confermi? Rispondi ‘confermo’.` e salva l'azione in attesa nel database.
+
+### Esempi di conversazioni AI
+
+**Salvataggio nota settimanale**
+
+```text
+Gianmarco: Giovedì sono dal commercialista dalle 10 alle 12.
+Bot: Perfetto, ho interpretato un impegno esterno di Gianmarco giovedì 10:00-12:00.
+Nota salvata con ID ...
+La userò nella generazione dell'orario.
+```
+
+**Memoria operativa persistente**
+
+```text
+Gianmarco: Ricordati che Lorenzo è in ferie dal 10 al 15 agosto.
+Bot: Ho salvato questa memoria operativa per Lorenzo.
+Memoria operativa salvata con ID ...
+La applicherò automaticamente quando genera orari compatibili.
+```
+
+**Generazione PDF**
+
+```text
+Gianmarco: Fammi l'orario della prossima settimana.
+Bot: Genero l'orario richiesto usando note, memorie e calendario moglie.
+Bot: [allega PDF]
+Bot/PDF: riepilogo note usate, memorie operative e avvisi/conflitti.
+```
+
+**Azione distruttiva con conferma**
+
+```text
+Gianmarco: Cancella tutte le note della settimana prossima.
+Bot: Cancellerò le note della settimana prossima. Confermi? Rispondi ‘confermo’.
+Gianmarco: confermo
+Bot: Azione confermata ed eseguita. Ho archiviato ... note attive.
+```

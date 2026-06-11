@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from orari_agent.ai_agent import AiAgent
 from orari_agent.backup import collect_backup_info, create_backup
 
 from telegram import Update
@@ -725,25 +726,39 @@ async def reset_settimana(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    allowed_user_id, notes_repository, schedule_service, _ = _deps(context)
+    allowed_user_id, _, _, _ = _deps(context)
     if not is_allowed_user(update, allowed_user_id):
         await reject_unauthorized(update)
         return
     text = (update.effective_message.text or "").strip()
     if not text:
         return
-    lowered = text.lower()
-    if lowered.startswith("genera orario") or lowered.startswith("genera l'orario"):
-        await _generate_and_send(update, context, text, schedule_service)
+    ai_agent: AiAgent | None = context.application.bot_data.get("ai_agent")
+    if ai_agent is None:
+        await update.effective_message.reply_text(
+            "Modalità AI non configurata: manca OPENAI_API_KEY."
+        )
         return
-    if lowered.startswith(("ricordati che ", "memorizza che ", "salva memoria ")):
-        memory = _save_memory_text(_memory_repo(context), text)
-        await update.effective_message.reply_text(_memory_saved_message(memory))
-        return
-    note = notes_repository.add(text, parse_note_metadata(text))
-    await update.effective_message.reply_text(
-        saved_note_message(note), parse_mode=ParseMode.HTML
+    user_id = (
+        int(update.effective_user.id) if update.effective_user else allowed_user_id
     )
+    result = ai_agent.handle_message(user_id, text)
+    generated_results = [
+        tool_result.generated_schedule
+        for tool_result in result.tool_results
+        if tool_result.generated_schedule is not None
+    ]
+    if generated_results:
+        await update.effective_message.reply_text(result.user_message)
+        for generated in generated_results:
+            with generated.pdf_path.open("rb") as pdf_file:
+                await update.effective_message.reply_document(
+                    document=pdf_file,
+                    filename=generated.pdf_path.name,
+                    caption=f"{generated.summary}\n{_warnings_text(generated.warnings)}",
+                )
+        return
+    await update.effective_message.reply_text(result.user_message)
 
 
 async def _generate_and_send(

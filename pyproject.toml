@@ -11,6 +11,7 @@ dependencies = [
     "python-telegram-bot>=22.7,<23",
     "python-dotenv>=1.0,<2",
     "openpyxl>=3.1,<4",
+    "openai>=1.0,<2",
 ]
 authors = [{ name = "CarpeEvolution" }]
 
