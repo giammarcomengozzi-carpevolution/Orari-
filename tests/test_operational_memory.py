@@ -171,7 +171,7 @@ def test_telegram_generation_summary_includes_counts_and_filename(tmp_path):
     assert "Orario generato per 2026-06-15 / 2026-06-21." in result.summary
     assert "Note usate: 1." in result.summary
     assert "Memorie operative: 1." in result.summary
-    assert f"Avvisi/conflitti: {len(result.warnings)}." in result.summary
+    assert f"Conflitti critici: {len(result.warnings)}." in result.summary
     assert (
         "PDF allegato: Orario_CarpeEvolution_Tenuta_2026-06-15_2026-06-21.pdf."
         in result.summary

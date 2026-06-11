@@ -28,11 +28,13 @@ def test_export_weekly_schedule_pdf_creates_landscape_pdf_with_polished_layout(
     assert b"Orario settimanale" in content
     assert b"CarpeEvolution Store & Tenuta del Germano" in content
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
-    assert b"Lunedi" in content
-    assert b"Domenica" in content
-    assert b"Lago mattina" in content
-    assert b"Negozio pomeriggio" in content
-    assert b"Avvisi / conflitti" in content
+    assert b"Martedi" in content
+    assert b"Sabato" in content
+    assert b"Persona" in content
+    assert b"Compito" in content
+    assert b"Lago mattina" not in content
+    assert b"Negozio pomeriggio" not in content
+    assert b"Conflitti critici / alert" in content
     assert b"ATTENZIONE" in content
 
 
@@ -42,7 +44,7 @@ def test_export_weekly_schedule_pdf_includes_no_conflict_message(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
 
     content = pdf_path.read_bytes()
-    assert b"Nessun conflitto rilevato." in content
+    assert b"Nessun conflitto critico rilevato" in content
 
 
 def test_export_weekly_schedule_pdf_does_not_crash_with_many_notes(tmp_path):
@@ -76,3 +78,46 @@ def test_cli_pdf_option_writes_chosen_output_path(tmp_path, capsys):
     assert exit_code == 0
     assert output_path.exists()
     assert f"PDF generato: {output_path}" in captured.out
+
+
+def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
+    schedule = generate_weekly_schedule(
+        "Martedì Gianmarco apre il lago. Martedì Angelo in negozio.",
+        week_start_date="2026-06-15",
+    )
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"Persona" in content
+    assert b"Sede" in content
+    assert b"Orario" in content
+    assert b"Pausa" in content
+    assert b"Compito" in content
+    assert b"Lago mattina" not in content
+    assert b"Lago pomeriggio" not in content
+    assert b"Negozio mattina" not in content
+    assert b"Negozio pomeriggio" not in content
+    assert b"Gianmarco Mengozzi" in content
+    assert b"07:30-16:30" in content
+    assert b"14:00-15:00" in content
+    assert b"APERTURA LAGO" in content
+    assert b"Angelo Antonelli" in content
+    assert b"09:00-12:30 / 15:30-19:30" in content
+    assert b"12:30-15:30" in content
+    assert b"NEGOZIO" in content
+    assert b"Riepilogo monte ore settimanale" in content
+    assert b"Lorenzo Sansavini" in content
+
+
+def test_operational_pdf_can_show_lake_second_shift_with_break(tmp_path):
+    schedule = generate_weekly_schedule(
+        "Martedì Lorenzo chiude il lago", week_start_date="2026-06-15"
+    )
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"09:30-18:30" in content
+    assert b"13:30-14:30" in content
+    assert b"CHIUSURA LAGO" in content

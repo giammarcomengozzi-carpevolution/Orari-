@@ -390,6 +390,9 @@ def _assign_forced_coverage(
                 f"{request.person} già su {request.label} per istruzione settimanale"
             )
             continue
+        _remove_assignments_inside_range(
+            day_schedule, request.person, request.activity, request.start, request.end
+        )
         if not _can_assign_person(
             day_schedule,
             request.person,
@@ -632,6 +635,31 @@ def _can_giammarco_open_lake(
             day_schedule.warnings.append(warning)
         return False
     return True
+
+
+def _remove_assignments_inside_range(
+    day_schedule: DaySchedule, person: str, activity: ActivityId, start: str, end: str
+) -> None:
+    start_minutes = _to_minutes(start)
+    end_minutes = _to_minutes(end)
+    buckets = (
+        day_schedule.lake_morning,
+        day_schedule.lake_afternoon,
+        day_schedule.shop_morning,
+        day_schedule.shop_afternoon,
+        day_schedule.company_work,
+    )
+    for bucket in buckets:
+        bucket[:] = [
+            assignment
+            for assignment in bucket
+            if not (
+                assignment.person == person
+                and assignment.activity == activity
+                and start_minutes <= _to_minutes(assignment.start)
+                and _to_minutes(assignment.end) <= end_minutes
+            )
+        ]
 
 
 def _append_lake_full_day(

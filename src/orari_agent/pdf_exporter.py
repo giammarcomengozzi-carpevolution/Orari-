@@ -12,7 +12,18 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .models import Assignment, DaySchedule, WeeklySchedule
+from .models import WeeklySchedule
+from .presentation import (
+    EffectiveShift,
+    critical_conflicts,
+    display_person,
+    effective_shifts,
+    format_duration,
+    informational_alerts,
+    lorenzo_target_status,
+    weekly_hour_totals,
+)
+from .people import ANGELO, GIAMMARCO, LORENZO
 
 PDF_TITLE = "Orario settimanale"
 PDF_SUBTITLE = "CarpeEvolution Store & Tenuta del Germano"
@@ -26,12 +37,13 @@ TABLE_WIDTH = PAGE_WIDTH - (MARGIN * 2)
 
 COLUMN_SPECS = [
     ("Giorno", 58.0),
-    ("Data", 64.0),
-    ("Lago mattina\n07:30-14:00", 140.0),
-    ("Lago pomeriggio\n14:00-18:30", 140.0),
-    ("Negozio mattina\n09:00-12:30", 120.0),
-    ("Negozio pomeriggio\n15:30-19:30", 120.0),
-    ("Note", TABLE_WIDTH - 58.0 - 64.0 - 140.0 - 140.0 - 120.0 - 120.0),
+    ("Data", 66.0),
+    ("Persona", 128.0),
+    ("Sede", 74.0),
+    ("Orario", 126.0),
+    ("Pausa", 88.0),
+    ("Compito", 132.0),
+    ("Note", TABLE_WIDTH - 58.0 - 66.0 - 128.0 - 74.0 - 126.0 - 88.0 - 132.0),
 ]
 
 
@@ -116,20 +128,24 @@ def _build_pdf_pages(
         weekly_notes if weekly_notes is not None else schedule.global_notes
     )
     memories = _compact_items(operational_memories)
-    warnings = _collect_warning_texts(schedule)
+    conflicts = critical_conflicts(schedule)
+    alerts = informational_alerts(schedule)
+    totals = weekly_hour_totals(schedule)
+    shifts = effective_shifts(schedule)
 
     page_one: list[str] = []
     _draw_header(page_one, week_start_date)
-    y = _draw_table(page_one, schedule.days, week_start_date, PAGE_HEIGHT - 104)
+    y = _draw_table(page_one, shifts, PAGE_HEIGHT - 104)
 
-    y = _draw_summary_sections(page_one, y - 10, notes, warnings, memories)
+    y = _draw_weekly_totals(page_one, y - 8, totals)
+    y = _draw_summary_sections(page_one, y - 8, notes, conflicts, memories, alerts)
     _draw_footer(page_one, 1)
 
     pages = ["\n".join(page_one).encode("latin-1", errors="replace")]
-    if _needs_detail_page(notes, warnings, memories):
+    if _needs_detail_page(notes, conflicts + alerts, memories):
         detail: list[str] = []
         _draw_header(detail, week_start_date, compact=True)
-        _draw_detail_page(detail, notes, warnings, memories)
+        _draw_detail_page(detail, notes, conflicts + alerts, memories)
         _draw_footer(detail, 2)
         pages.append("\n".join(detail).encode("latin-1", errors="replace"))
     return pages
@@ -224,15 +240,14 @@ def _date_for_row(week_start_date: str | None, index: int) -> str:
 
 def _draw_table(
     commands: list[str],
-    days: list[DaySchedule],
-    week_start_date: str | None,
+    shifts: list[EffectiveShift],
     top_y: float,
 ) -> float:
     x_positions = [MARGIN]
     for _, width in COLUMN_SPECS[:-1]:
         x_positions.append(x_positions[-1] + width)
 
-    header_height = 28.0
+    header_height = 20.0
     _draw_filled_rect(
         commands,
         MARGIN,
@@ -244,37 +259,19 @@ def _draw_table(
         0.39,
     )
     for x, (label, width) in zip(x_positions, COLUMN_SPECS, strict=True):
-        header_lines = label.split("\n")
-        _add_text(
-            commands,
-            x + 4,
-            top_y - 11,
-            header_lines[0],
-            8.0,
-            bold=True,
-            color=(1, 1, 1),
-        )
-        if len(header_lines) > 1:
-            _add_text(
-                commands,
-                x + 4,
-                top_y - 22,
-                header_lines[1],
-                6.8,
-                bold=True,
-                color=(0.86, 0.95, 0.88),
-            )
+        _add_text(commands, x + 4, top_y - 13, label, 8.0, bold=True, color=(1, 1, 1))
         _draw_rect(commands, x, top_y - header_height, width, header_height)
 
     y = top_y - header_height
-    for index, day in enumerate(days):
-        row = _row_for_day(day, _date_for_row(week_start_date, index))
+    visible_shifts = shifts[:18]
+    for index, shift in enumerate(visible_shifts):
+        row = _row_for_shift(shift)
         wrapped_cells = [
             _wrap_cell(cell.text, width, cell.font_size)
             for cell, (_, width) in zip(row, COLUMN_SPECS, strict=True)
         ]
         line_count = max(len(lines) for lines in wrapped_cells)
-        row_height = max(45.0, min(52.0, 10.5 + line_count * 8.0))
+        row_height = max(18.0, min(30.0, 7.5 + line_count * 7.2))
 
         if index % 2 == 1:
             _draw_filled_rect(
@@ -287,29 +284,13 @@ def _draw_table(
                 0.98,
                 1.0,
             )
-        if day.warnings:
-            _draw_filled_rect(
-                commands,
-                MARGIN,
-                y - row_height,
-                TABLE_WIDTH,
-                row_height,
-                1.0,
-                0.96,
-                0.86,
-            )
 
         for x, (cell, lines, (_, width)) in zip(
             x_positions, zip(row, wrapped_cells, COLUMN_SPECS, strict=True), strict=True
         ):
             _draw_rect(commands, x, y - row_height, width, row_height, stroke_gray=0.72)
-            text_y = y - 12.5
-            color = (
-                (0.55, 0.15, 0.0)
-                if day.warnings and cell.text.startswith("ATTENZIONE")
-                else (0, 0, 0)
-            )
-            for line in lines[:6]:
+            text_y = y - 10.5
+            for line in lines[:3]:
                 _add_text(
                     commands,
                     x + 4,
@@ -317,53 +298,35 @@ def _draw_table(
                     line,
                     cell.font_size,
                     bold=cell.font_size >= 8.5,
-                    color=color,
                 )
-                text_y -= 8.0
-
+                text_y -= 7.2
         y -= row_height
+
+    if len(shifts) > len(visible_shifts):
+        _add_text(
+            commands,
+            MARGIN,
+            y - 10,
+            f"Altri {len(shifts) - len(visible_shifts)} turni disponibili nei dettagli operativi.",
+            7.0,
+            bold=True,
+            color=(0.45, 0.12, 0.0),
+        )
+        y -= 16
     return y
 
 
-def _row_for_day(day: DaySchedule, row_date: str) -> list[_Cell]:
-    notes = [*day.notes]
-    notes.extend(_format_company_work(assignment) for assignment in day.company_work)
-    notes.extend(f"ATTENZIONE: {warning}" for warning in day.warnings)
+def _row_for_shift(shift: EffectiveShift) -> list[_Cell]:
     return [
-        _Cell(day.day, 8.8),
-        _Cell(row_date, 7.4),
-        _Cell(_format_assignments(day.lake_morning), 7.8),
-        _Cell(_format_assignments(day.lake_afternoon), 7.8),
-        _Cell(_format_assignments(day.shop_morning), 7.2),
-        _Cell(_format_assignments(day.shop_afternoon), 7.2),
-        _Cell("; ".join(notes) if notes else "-", 6.8),
+        _Cell(shift.day, 7.8),
+        _Cell(shift.date, 7.2),
+        _Cell(display_person(shift.person), 7.2),
+        _Cell(shift.location, 7.4),
+        _Cell(shift.work_time, 7.3),
+        _Cell(shift.break_time, 7.0),
+        _Cell(shift.task, 7.0),
+        _Cell(shift.notes or "-", 6.5),
     ]
-
-
-def _format_assignments(assignments: list[Assignment]) -> str:
-    if not assignments:
-        return "-"
-    return "; ".join(_format_assignment(assignment) for assignment in assignments)
-
-
-def _format_assignment(assignment: Assignment) -> str:
-    pieces = [
-        _display_person(assignment.person),
-        f"{assignment.start}-{assignment.end}",
-    ]
-    if assignment.break_label:
-        pieces.append(f"Pausa {assignment.break_label}")
-    return "\n".join(pieces)
-
-
-def _format_company_work(assignment: Assignment) -> str:
-    return f"{_display_person(assignment.person).split()[0]}: {assignment.period} {assignment.start}-{assignment.end}"
-
-
-def _display_person(person: str) -> str:
-    return person.replace("Giammarco Mengozzi", "Gianmarco Mengozzi").replace(
-        "Giammarco", "Gianmarco"
-    )
 
 
 def _wrap_cell(text: str, width: float, font_size: float) -> list[str]:
@@ -381,17 +344,61 @@ def _wrap_cell(text: str, width: float, font_size: float) -> list[str]:
     return lines
 
 
+def _draw_weekly_totals(
+    commands: list[str], top_y: float, totals: dict[str, float]
+) -> float:
+    height = 52.0
+    y = max(34.0, top_y - height)
+    _draw_filled_rect(commands, MARGIN, y, TABLE_WIDTH, height, 0.94, 0.97, 0.94)
+    _draw_rect(commands, MARGIN, y, TABLE_WIDTH, height, stroke_gray=0.65)
+    _add_text(
+        commands,
+        MARGIN + 6,
+        top_y - 12,
+        "Riepilogo monte ore settimanale",
+        8.0,
+        bold=True,
+        color=(0.05, 0.20, 0.12),
+    )
+    x = MARGIN + 6
+    y_text = top_y - 26
+    people = [GIAMMARCO.full_name, ANGELO.full_name, LORENZO.full_name]
+    for person in people:
+        total = totals.get(person, 0.0)
+        status = "Nessun target impostato"
+        if person == LORENZO.full_name:
+            status = lorenzo_target_status(total)
+        _add_text(
+            commands,
+            x,
+            y_text,
+            f"{display_person(person)} | {format_duration(total)} | {status}",
+            7.0,
+        )
+        y_text -= 9.0
+    return y
+
+
 def _draw_summary_sections(
     commands: list[str],
     top_y: float,
     notes: Sequence[str],
     warnings: Sequence[str],
     memories: Sequence[str],
+    alerts: Sequence[str] | None = None,
 ) -> float:
     box_gap = 7.0
     box_width = (TABLE_WIDTH - (box_gap * 2)) / 3
     height = max(54.0, min(78.0, top_y - 36.0))
     y = max(34.0, top_y - height)
+    alert_lines = list(alerts or [])
+    conflict_lines = (
+        ["Nessun conflitto critico rilevato"]
+        if not warnings
+        else ["ATTENZIONE - conflitti critici"] + list(warnings)
+    )
+    if alert_lines:
+        conflict_lines.extend(["Alert informativi", *alert_lines])
     summaries = [
         (
             "Note operative",
@@ -400,12 +407,8 @@ def _draw_summary_sections(
             (0.05, 0.20, 0.12),
         ),
         (
-            "Avvisi / conflitti",
-            (
-                ["Nessun conflitto rilevato."]
-                if not warnings
-                else ["ATTENZIONE"] + list(warnings)
-            ),
+            "Conflitti critici / alert",
+            conflict_lines,
             (1.0, 0.94, 0.84) if warnings else (0.94, 0.97, 0.94),
             (0.70, 0.18, 0.02) if warnings else (0.05, 0.20, 0.12),
         ),
@@ -454,8 +457,8 @@ def _draw_detail_page(
     )
     y = _draw_detail_section(
         commands,
-        "Avvisi / conflitti",
-        warnings or ["Nessun conflitto rilevato."],
+        "Conflitti critici / alert informativi",
+        warnings or ["Nessun conflitto critico rilevato"],
         y - 10,
         warning=bool(warnings),
     )

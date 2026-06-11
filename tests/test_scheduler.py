@@ -267,11 +267,10 @@ def test_lorenzo_morning_absence_reassigns_coverage_and_warns_about_hours():
         and assignment.start == "07:30"
         for assignment in friday.assignments()
     )
-    assert any("Lorenzo ha" in warning for warning in schedule.global_warnings)
-    assert any(
-        "Venerdì" in warning and "devono essere 8 ore" in warning
-        for warning in schedule.global_warnings
-    )
+    assert schedule.global_warnings == []
+    from orari_agent.presentation import informational_alerts
+
+    assert any("sotto target" in alert for alert in informational_alerts(schedule))
 
 
 def test_forced_lake_closing_and_extra_lake_coverage_are_applied():
@@ -503,4 +502,100 @@ def test_unknown_note_is_preserved_as_pdf_warning():
     assert any(
         "Ricordati di comprare il caffè" in warning
         for warning in schedule.global_warnings
+    )
+
+
+def test_lorenzo_target_40h_is_ok_in_operational_summary():
+    from orari_agent.presentation import lorenzo_target_status, weekly_hour_totals
+
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-15")
+    totals = weekly_hour_totals(schedule)
+
+    assert totals["Lorenzo Sansavini"] == 40.0
+    assert lorenzo_target_status(totals["Lorenzo Sansavini"]) == "OK 40h"
+    assert schedule.global_warnings == []
+
+
+def test_lorenzo_below_40h_is_informational_not_critical_conflict():
+    from orari_agent.presentation import (
+        critical_conflicts,
+        informational_alerts,
+        weekly_hour_totals,
+    )
+
+    schedule = generate_weekly_schedule(
+        "Martedì Lorenzo è assente. Domenica Lorenzo è assente",
+        week_start_date="2026-06-15",
+    )
+
+    assert weekly_hour_totals(schedule)["Lorenzo Sansavini"] < 40.0
+    assert any("sotto target" in alert for alert in informational_alerts(schedule))
+    assert all(
+        "sotto target" not in conflict for conflict in critical_conflicts(schedule)
+    )
+
+
+def test_lorenzo_above_40h_and_daily_over_8h_are_informational_and_generation_succeeds():
+    from orari_agent.presentation import (
+        critical_conflicts,
+        effective_shifts,
+        informational_alerts,
+        weekly_hour_totals,
+    )
+
+    schedule = generate_weekly_schedule(
+        "Martedì Lorenzo lavora al lago", week_start_date="2026-06-15"
+    )
+
+    assert weekly_hour_totals(schedule)["Lorenzo Sansavini"] > 40.0
+    alerts = informational_alerts(schedule)
+    assert any("sopra target" in alert for alert in alerts)
+    assert any("turno lungo" in alert.lower() for alert in alerts)
+    assert not any(
+        "sopra target" in conflict for conflict in critical_conflicts(schedule)
+    )
+    assert any(
+        shift.person == "Lorenzo Sansavini"
+        and shift.day == "Martedì"
+        and ("TURNO LUNGO" in shift.task or "STRAORDINARIO" in shift.task)
+        for shift in effective_shifts(schedule)
+    )
+
+
+def test_parser_understands_lorenzo_overtime_as_note_not_unlock():
+    instruction = parse_weekly_instruction(
+        "Settimana prossima Lorenzo può fare straordinario"
+    )
+
+    assert instruction.lorenzo_overtime_authorized is True
+    assert "Straordinario Lorenzo autorizzato" in instruction.weekly_notes
+    assert instruction.unknown_notes == []
+
+    from orari_agent.presentation import weekly_hour_totals
+
+    schedule = generate_weekly_schedule(
+        "Martedì Lorenzo lavora al lago", week_start_date="2026-06-15"
+    )
+    assert weekly_hour_totals(schedule)["Lorenzo Sansavini"] > 40.0
+
+
+def test_lorenzo_custom_long_shift_text_creates_operational_overtime_row():
+    from orari_agent.presentation import (
+        effective_shifts,
+        informational_alerts,
+        weekly_hour_totals,
+    )
+
+    schedule = generate_weekly_schedule(
+        "Sabato Lorenzo lavora 07:30-18:30", week_start_date="2026-06-15"
+    )
+
+    assert weekly_hour_totals(schedule)["Lorenzo Sansavini"] == 42.0
+    assert any("sopra target" in alert for alert in informational_alerts(schedule))
+    assert any(
+        shift.person == "Lorenzo Sansavini"
+        and shift.day == "Sabato"
+        and shift.work_time == "07:30-18:30"
+        and "TURNO LUNGO" in shift.task
+        for shift in effective_shifts(schedule)
     )
