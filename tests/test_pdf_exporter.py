@@ -121,3 +121,53 @@ def test_operational_pdf_can_show_lake_second_shift_with_break(tmp_path):
     assert b"09:30-18:30" in content
     assert b"13:30-14:30" in content
     assert b"CHIUSURA LAGO" in content
+
+
+def _schedule_with_many_effective_shifts(count: int):
+    from orari_agent.business_rules import ActivityId
+    from orari_agent.models import Assignment, DaySchedule, WeeklySchedule
+
+    assignments = [
+        Assignment(
+            "Giammarco Mengozzi",
+            ActivityId.COMPANY_WORK,
+            f"ESTERNO-{index:02d}",
+            "07:00",
+            "07:10",
+            1 / 6,
+        )
+        for index in range(1, count + 1)
+    ]
+    return WeeklySchedule(
+        days=[DaySchedule(day="Martedì", company_work=assignments)],
+        week_start_date="2026-06-15",
+    )
+
+
+def test_operational_pdf_with_more_than_18_shifts_includes_all_shift_rows(tmp_path):
+    schedule = _schedule_with_many_effective_shifts(34)
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    for index in range(1, 35):
+        assert f"ESTERNO-{index:02d}".encode() in content
+
+
+def test_operational_pdf_creates_continuation_page_when_needed(tmp_path):
+    schedule = _schedule_with_many_effective_shifts(34)
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"Turni operativi - continuazione" in content
+    assert b"Pagina 2" in content
+
+
+def test_operational_pdf_does_not_claim_unprinted_detail_shifts(tmp_path):
+    schedule = _schedule_with_many_effective_shifts(34)
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"turni disponibili nei dettagli" not in content

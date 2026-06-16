@@ -133,20 +133,63 @@ def _build_pdf_pages(
     totals = weekly_hour_totals(schedule)
     shifts = effective_shifts(schedule)
 
-    page_one: list[str] = []
-    _draw_header(page_one, week_start_date)
-    y = _draw_table(page_one, shifts, PAGE_HEIGHT - 104)
+    pages: list[bytes] = []
+    shift_index = 0
+    page_number = 1
+    summary_drawn = False
 
-    y = _draw_weekly_totals(page_one, y - 8, totals)
-    y = _draw_summary_sections(page_one, y - 8, notes, conflicts, memories, alerts)
-    _draw_footer(page_one, 1)
+    while shift_index < len(shifts):
+        commands: list[str] = []
+        _draw_header(commands, week_start_date, compact=page_number > 1)
+        if page_number > 1:
+            _add_text(
+                commands,
+                MARGIN,
+                PAGE_HEIGHT - 92,
+                "Turni operativi - continuazione",
+                9.0,
+                bold=True,
+                color=(0.05, 0.20, 0.12),
+            )
+        top_y = PAGE_HEIGHT - (104 if page_number == 1 else 112)
+        summary_bottom_y = 174.0
+        page_bottom_y = 40.0
 
-    pages = ["\n".join(page_one).encode("latin-1", errors="replace")]
+        end_with_summary = _fit_shift_end(shifts, shift_index, top_y, summary_bottom_y)
+        if end_with_summary == len(shifts):
+            y = _draw_table(
+                commands, shifts[shift_index:end_with_summary], top_y, summary_bottom_y
+            )
+            y = _draw_weekly_totals(commands, y - 8, totals)
+            _draw_summary_sections(commands, y - 8, notes, conflicts, memories, alerts)
+            summary_drawn = True
+            shift_index = end_with_summary
+        else:
+            end = _fit_shift_end(shifts, shift_index, top_y, page_bottom_y)
+            if end == shift_index:
+                end = min(shift_index + 1, len(shifts))
+            _draw_table(commands, shifts[shift_index:end], top_y, page_bottom_y)
+            shift_index = end
+
+        _draw_footer(commands, page_number)
+        pages.append("\n".join(commands).encode("latin-1", errors="replace"))
+        page_number += 1
+
+    if not shifts or not summary_drawn:
+        commands = []
+        _draw_header(commands, week_start_date, compact=bool(pages))
+        y = PAGE_HEIGHT - 104
+        y = _draw_weekly_totals(commands, y, totals)
+        _draw_summary_sections(commands, y - 8, notes, conflicts, memories, alerts)
+        _draw_footer(commands, page_number)
+        pages.append("\n".join(commands).encode("latin-1", errors="replace"))
+        page_number += 1
+
     if _needs_detail_page(notes, conflicts + alerts, memories):
         detail: list[str] = []
         _draw_header(detail, week_start_date, compact=True)
         _draw_detail_page(detail, notes, conflicts + alerts, memories)
-        _draw_footer(detail, 2)
+        _draw_footer(detail, page_number)
         pages.append("\n".join(detail).encode("latin-1", errors="replace"))
     return pages
 
@@ -242,6 +285,7 @@ def _draw_table(
     commands: list[str],
     shifts: list[EffectiveShift],
     top_y: float,
+    bottom_y: float,
 ) -> float:
     x_positions = [MARGIN]
     for _, width in COLUMN_SPECS[:-1]:
@@ -263,15 +307,15 @@ def _draw_table(
         _draw_rect(commands, x, top_y - header_height, width, header_height)
 
     y = top_y - header_height
-    visible_shifts = shifts[:18]
-    for index, shift in enumerate(visible_shifts):
+    for index, shift in enumerate(shifts):
         row = _row_for_shift(shift)
         wrapped_cells = [
             _wrap_cell(cell.text, width, cell.font_size)
             for cell, (_, width) in zip(row, COLUMN_SPECS, strict=True)
         ]
-        line_count = max(len(lines) for lines in wrapped_cells)
-        row_height = max(18.0, min(30.0, 7.5 + line_count * 7.2))
+        row_height = _row_height_for_wrapped_cells(wrapped_cells)
+        if y - row_height < bottom_y:
+            break
 
         if index % 2 == 1:
             _draw_filled_rect(
@@ -302,18 +346,31 @@ def _draw_table(
                 text_y -= 7.2
         y -= row_height
 
-    if len(shifts) > len(visible_shifts):
-        _add_text(
-            commands,
-            MARGIN,
-            y - 10,
-            f"Altri {len(shifts) - len(visible_shifts)} turni disponibili nei dettagli operativi.",
-            7.0,
-            bold=True,
-            color=(0.45, 0.12, 0.0),
-        )
-        y -= 16
     return y
+
+
+def _fit_shift_end(
+    shifts: Sequence[EffectiveShift], start_index: int, top_y: float, bottom_y: float
+) -> int:
+    y = top_y - 20.0
+    index = start_index
+    while index < len(shifts):
+        row = _row_for_shift(shifts[index])
+        wrapped_cells = [
+            _wrap_cell(cell.text, width, cell.font_size)
+            for cell, (_, width) in zip(row, COLUMN_SPECS, strict=True)
+        ]
+        row_height = _row_height_for_wrapped_cells(wrapped_cells)
+        if y - row_height < bottom_y:
+            break
+        y -= row_height
+        index += 1
+    return index
+
+
+def _row_height_for_wrapped_cells(wrapped_cells: Sequence[list[str]]) -> float:
+    line_count = max(len(lines) for lines in wrapped_cells)
+    return max(18.0, min(30.0, 7.5 + line_count * 7.2))
 
 
 def _row_for_shift(shift: EffectiveShift) -> list[_Cell]:
