@@ -8,6 +8,14 @@ from pathlib import Path
 from orari_agent.generator import generate_weekly_schedule
 from orari_agent.models import WeeklySchedule
 from orari_agent.pdf_exporter import export_weekly_schedule_pdf
+from orari_agent.presentation import (
+    critical_conflicts,
+    effective_shifts,
+    format_duration,
+    lorenzo_target_status,
+    weekly_hour_totals,
+)
+from orari_agent.people import ANGELO, GIAMMARCO, LORENZO
 from orari_agent.scheduling.memory_adapter import (
     memories_to_weekly_instruction,
     merge_weekly_instructions,
@@ -69,7 +77,7 @@ class ScheduleService:
         )
         warnings = _collect_warnings(schedule)
         summary = _build_summary(
-            schedule, notes, memories, week_start, week_end, warnings
+            schedule, week_start, week_end, warnings, len(notes), len(memories)
         )
         pdf_path = (
             self.output_dir
@@ -105,32 +113,30 @@ def _notes_to_planning_text(notes: list[Note]) -> str:
 
 
 def _collect_warnings(schedule: WeeklySchedule) -> list[str]:
-    warnings = list(schedule.global_warnings)
-    for day in schedule.days:
-        for warning in day.warnings:
-            if warning.startswith("Conflitto:"):
-                warnings.append(warning)
-            else:
-                warnings.append(f"{day.day}: {warning}")
-    return warnings
+    return critical_conflicts(schedule)
 
 
 def _build_summary(
     schedule: WeeklySchedule,
-    notes: list[Note],
-    memories: list[OperationalMemory],
     week_start: str,
     week_end: str,
     warnings: list[str],
+    note_count: int = 0,
+    memory_count: int = 0,
 ) -> str:
-    note_count = len(notes)
-    memory_count = len(memories)
-    warning_count = len(warnings)
     filename = f"Orario_CarpeEvolution_Tenuta_{week_start}_{week_end}.pdf"
+    totals = weekly_hour_totals(schedule)
+    shift_count = len(effective_shifts(schedule))
+    lorenzo_status = lorenzo_target_status(totals.get(LORENZO.full_name, 0.0))
     return (
         f"Orario generato per {week_start} / {week_end}.\n"
+        f"Turni: {shift_count}.\n"
         f"Note usate: {note_count}.\n"
         f"Memorie operative: {memory_count}.\n"
-        f"Avvisi/conflitti: {warning_count}.\n"
+        "Monte ore:\n"
+        f"- Gianmarco: {format_duration(totals.get(GIAMMARCO.full_name, 0.0))}\n"
+        f"- Angelo: {format_duration(totals.get(ANGELO.full_name, 0.0))}\n"
+        f"- Lorenzo: {format_duration(totals.get(LORENZO.full_name, 0.0))} {lorenzo_status}\n"
+        f"Conflitti critici: {len(warnings)}.\n"
         f"PDF allegato: {filename}."
     )

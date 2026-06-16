@@ -180,9 +180,9 @@ class AiToolExecutor:
             start.isoformat(), end.isoformat()
         )
         warning_text = (
-            "Nessun avviso rilevato."
+            "Nessun conflitto critico rilevato."
             if not result.warnings
-            else "Avvisi/conflitti:\n"
+            else "Conflitti critici:\n"
             + "\n".join(f"• {warning}" for warning in result.warnings[:8])
         )
         return ToolExecutionResult(

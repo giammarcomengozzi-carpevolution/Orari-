@@ -6,7 +6,6 @@ from collections import defaultdict
 
 from .business_rules import CARPEEVOLUTION_STORE, TENUTA_DEL_GERMANO, ActivityId
 from .models import Assignment, DaySchedule, WeeklySchedule
-from .people import LORENZO
 
 
 def validate_schedule(schedule: WeeklySchedule) -> WeeklySchedule:
@@ -20,30 +19,9 @@ def validate_schedule(schedule: WeeklySchedule) -> WeeklySchedule:
 
 
 def _validate_lorenzo_hours(schedule: WeeklySchedule) -> None:
-    hours_by_day: dict[str, float] = defaultdict(float)
-    for day in schedule.days:
-        for assignment in day.assignments():
-            if assignment.person == LORENZO.full_name:
-                hours_by_day[day.day] += assignment.working_hours
-
-    working_days = {day for day, hours in hours_by_day.items() if hours > 0}
-    total_hours = sum(hours_by_day.values())
-
-    if total_hours != LORENZO.strict_weekly_hours:
-        schedule.global_warnings.append(
-            f"Lorenzo ha {total_hours:g} ore lavorative: devono essere esattamente 40."
-        )
-
-    if len(working_days) != LORENZO.strict_working_days:
-        schedule.global_warnings.append(
-            f"Lorenzo lavora {len(working_days)} giorni: devono essere esattamente 5."
-        )
-
-    for day, hours in sorted(hours_by_day.items()):
-        if hours and hours != LORENZO.strict_daily_hours:
-            schedule.global_warnings.append(
-                f"Lorenzo lavora {hours:g} ore di {day}: devono essere 8 ore."
-            )
+    # Le 40 ore di Lorenzo sono un target monitorato, non un vincolo bloccante.
+    # Il riepilogo operativo calcola gli alert informativi sui turni effettivi.
+    del schedule
 
 
 def _validate_coverage(day: DaySchedule) -> None:
@@ -84,7 +62,9 @@ def _validate_activity_coverage(
     label: str,
 ) -> None:
     del activity  # Mantiene la firma pronta per controlli più avanzati.
-    missing_ranges = _missing_ranges(assignments, _to_minutes(required_start), _to_minutes(required_end))
+    missing_ranges = _missing_ranges(
+        assignments, _to_minutes(required_start), _to_minutes(required_end)
+    )
     for start, end in missing_ranges:
         day.warnings.append(
             f"Copertura mancante {label} dalle {_to_label(start)} alle {_to_label(end)}."
@@ -106,13 +86,22 @@ def _validate_person_conflicts(day: DaySchedule) -> None:
                 )
 
 
-def _assignments_for_activity(day: DaySchedule, activity: ActivityId) -> list[Assignment]:
-    return [assignment for assignment in day.assignments() if assignment.activity == activity]
+def _assignments_for_activity(
+    day: DaySchedule, activity: ActivityId
+) -> list[Assignment]:
+    return [
+        assignment
+        for assignment in day.assignments()
+        if assignment.activity == activity
+    ]
 
 
-def _missing_ranges(assignments: list[Assignment], required_start: int, required_end: int) -> list[tuple[int, int]]:
+def _missing_ranges(
+    assignments: list[Assignment], required_start: int, required_end: int
+) -> list[tuple[int, int]]:
     intervals = sorted(
-        (_to_minutes(assignment.start), _to_minutes(assignment.end)) for assignment in assignments
+        (_to_minutes(assignment.start), _to_minutes(assignment.end))
+        for assignment in assignments
     )
     cursor = required_start
     missing: list[tuple[int, int]] = []

@@ -132,6 +132,7 @@ class WeeklyInstruction:
     exceptional_openings: list[OpeningRequest] = field(default_factory=list)
     day_notes: dict[str, list[str]] = field(default_factory=dict)
     weekly_notes: list[str] = field(default_factory=list)
+    lorenzo_overtime_authorized: bool = False
     unknown_notes: list[str] = field(default_factory=list)
 
     def unavailable_days_for(self, person: str) -> set[str]:
@@ -265,11 +266,51 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
         people = _people_in_text(lowered)
         period = _period_in_text(lowered)
 
+        if LORENZO.full_name in people and _mentions_overtime(lowered):
+            instruction.lorenzo_overtime_authorized = True
+            note = "Straordinario Lorenzo autorizzato"
+            if note not in instruction.weekly_notes:
+                instruction.weekly_notes.append(note)
+            if not days:
+                continue
+
         if GIAMMARCO.full_name in people and _mentions_shop(lowered) and not days:
             requested_count = _requested_day_count(lowered)
             if requested_count is not None:
                 instruction.giammarco_requested_shop_day_count = requested_count
                 continue
+
+        explicit_work_range = _time_range_in_text(lowered)
+        if (
+            people
+            and explicit_work_range is not None
+            and (_mentions_work_request(lowered) or _mentions_lake(lowered))
+        ):
+            activity = ActivityId.SHOP if _mentions_shop(lowered) else ActivityId.LAKE
+            target = (
+                instruction.forced_shop_coverage
+                if activity == ActivityId.SHOP
+                else instruction.forced_lake_coverage
+            )
+            for person in people:
+                for day in days:
+                    target.append(
+                        CoverageRequest(
+                            day,
+                            person,
+                            activity,
+                            explicit_work_range[0],
+                            explicit_work_range[1],
+                            "turno indicato dall'utente",
+                        )
+                    )
+                    if person == GIAMMARCO.full_name:
+                        (
+                            instruction.giammarco_shop_days
+                            if activity == ActivityId.SHOP
+                            else instruction.giammarco_lake_days
+                        ).add(day)
+            continue
 
         if not days:
             instruction.unknown_notes.append(sentence)
@@ -846,10 +887,7 @@ def _people_in_text(lowered_text: str) -> set[str]:
     people = {
         person
         for alias, person in PEOPLE_ALIASES.items()
-        if (
-            alias == "io"
-            and f" {alias} " in f" {lowered_text} "
-        )
+        if (alias == "io" and f" {alias} " in f" {lowered_text} ")
         or (alias != "io" and alias in lowered_text)
     }
     return people
@@ -943,6 +981,21 @@ def _mentions_closing(lowered_text: str) -> bool:
     return any(word in lowered_text for word in closing_words)
 
 
+def _mentions_overtime(lowered_text: str) -> bool:
+    overtime_words = (
+        "straordinario",
+        "superare le 40",
+        "superare 40",
+        "piu di 40",
+        "più di 40",
+        "12 ore",
+        "11 ore",
+        "10 ore",
+        "di fila",
+    )
+    return any(word in lowered_text for word in overtime_words)
+
+
 def _mentions_lake(lowered_text: str) -> bool:
     lake_words = ("lago", "lake", "tenuta")
     return any(word in lowered_text for word in lake_words)
@@ -998,6 +1051,11 @@ def _time_range_in_text(lowered_text: str) -> tuple[str, str] | None:
         r"\b(?:dalle|da)\s+(\d{1,2})(?::(\d{2}))?\s+(?:alle|a)\s+(\d{1,2})(?::(\d{2}))?\b",
         lowered_text,
     )
+    if not match:
+        match = re.search(
+            r"\b(\d{1,2})(?::(\d{2}))?\s*[-/]\s*(\d{1,2})(?::(\d{2}))?\b",
+            lowered_text,
+        )
     if not match:
         return None
     return _format_time(match.group(1), match.group(2)), _format_time(

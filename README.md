@@ -90,20 +90,53 @@ Orario_CarpeEvolution_Tenuta_YYYY-MM-DD.pdf
 
 La data nel nome deriva da `week_start` dentro `input/weekly_plan.yaml`.
 
-## Nuovo layout PDF per WhatsApp/Telegram
+## PDF operativo per WhatsApp/Telegram
 
-Il PDF settimanale è in formato **A4 orizzontale** con stile professionale verde/nero/bianco, senza dipendenze da loghi o immagini esterne. È pensato per essere leggibile da telefono e per essere inoltrato rapidamente ad Angelo, Lorenzo e Gianmarco.
+Il PDF settimanale è in formato **A4 orizzontale** e privilegia la leggibilità operativa rispetto alla grafica. Non è più organizzato sulle colonne interne del motore (`Lago mattina`, `Lago pomeriggio`, `Negozio mattina`, `Negozio pomeriggio`): quelle fasce possono restare nel motore, ma il PDF mostra i **turni reali per persona**.
 
 La **pagina 1** contiene:
 
-- intestazione con titolo `Orario settimanale`, sottotitolo `CarpeEvolution Store & Tenuta del Germano` e intervallo `Settimana: YYYY-MM-DD / YYYY-MM-DD`;
-- tabella principale per giorno, con colonne `Giorno`, `Data`, `Lago mattina 07:30-14:00`, `Lago pomeriggio 14:00-18:30`, `Negozio mattina 09:00-12:30`, `Negozio pomeriggio 15:30-19:30` e `Note`;
-- nomi completi delle persone nei turni (`Angelo Antonelli`, `Lorenzo Sansavini`, `Gianmarco Mengozzi`) e pause compatte, ad esempio `Pausa 14:00-15:00`;
-- riquadro `Note operative`, riquadro `Avvisi / conflitti` e riquadro `Memorie operative applicate`;
-- messaggio `ATTENZIONE` quando ci sono conflitti, oppure `Nessun conflitto rilevato.` quando i controlli non trovano problemi;
-- footer con timestamp di generazione e indicazione che il file è pronto per WhatsApp/Telegram.
+- intestazione `Orario settimanale` con intervallo `Settimana: YYYY-MM-DD / YYYY-MM-DD`;
+- tabella principale con colonne `Giorno`, `Data`, `Persona`, `Sede`, `Orario`, `Pausa`, `Compito`, `Note`;
+- una riga per persona/turno, ad esempio `Gianmarco Mengozzi | Lago | 07:30-16:30 | 14:00-15:00 | APERTURA LAGO`;
+- turni negozio a giornata intera in forma spezzata, ad esempio `09:00-12:30 / 15:30-19:30` con pausa `12:30-15:30`;
+- sezione `Riepilogo monte ore settimanale` con Gianmarco, Angelo e Lorenzo;
+- riquadro `Conflitti critici / alert` che separa i problemi veri dagli alert informativi.
 
-La **pagina 2** viene aggiunta solo quando serve più spazio, ad esempio con molte note, molti avvisi/conflitti o molte memorie operative applicate. In quel caso contiene i dettagli completi di note operative, avvisi/conflitti e memorie, mentre la prima pagina resta compatta.
+Etichette semplici usate nella colonna `Compito`:
+
+- `APERTURA LAGO`, `CHIUSURA LAGO`, `LAGO`;
+- `APERTURA NEGOZIO`, `CHIUSURA NEGOZIO`, `NEGOZIO`;
+- `LAVORO ESTERNO`;
+- `TURNO LUNGO` quando un turno effettivo supera le 8 ore.
+
+Il calcolo del monte ore usa il tempo di lavoro reale e sottrae le pause note. Esempi:
+
+- `09:00-12:30 / 15:30-19:30` = **7h 30m**;
+- `07:30-16:30` con pausa `14:00-15:00` = **8h 00m**;
+- lavoro esterno di Gianmarco conta come lavoro;
+- ferie e assenze non contano come lavoro.
+
+### Target Lorenzo 40 ore
+
+Per Lorenzo le **40 ore settimanali sono un target di monitoraggio, non un vincolo bloccante**. Il programma può generare l'orario anche se Lorenzo lavora meno di 40 ore, più di 40 ore o più di 8 ore in un giorno. Il PDF e il riepilogo Telegram lo rendono visibile:
+
+- `OK 40h` se Lorenzo è esattamente a 40 ore;
+- `ATTENZIONE: Lorenzo sotto target...` se è sotto;
+- `ATTENZIONE: Lorenzo sopra target...` se è sopra;
+- `TURNO LUNGO` sul turno se supera le 8 ore giornaliere.
+
+Questi sono **alert informativi**, non conflitti critici. I conflitti critici restano invece coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in data con codice moglie `M`, o assegnazioni in giorni chiusi senza apertura esplicita.
+
+Esempi di frasi operative:
+
+```text
+Martedì Gianmarco apre il lago
+Sabato Lorenzo lavora 07:30-18:30
+Settimana prossima Lorenzo può fare straordinario
+```
+
+La frase sullo straordinario salva una nota operativa (`Straordinario Lorenzo autorizzato`), ma lo straordinario non richiede una parola di sblocco: se il turno serve, viene calcolato e mostrato comunque.
 
 ## Cosa fare se c'è un errore
 
@@ -185,7 +218,7 @@ Pattern operativi ora supportati:
 - **Copertura forzata negozio**: `Giovedì Gianmarco in negozio tutto il giorno per fatture`, `Sabato Angelo deve stare in negozio il pomeriggio`, `Martedì Angelo apre il negozio`, `Venerdì Gianmarco negozio mattina`. `apre il negozio` significa 09:00-12:30; `chiude il negozio` significa 15:30-19:30.
 - **Copertura forzata lago**: `Martedì Lorenzo deve aprire il lago`, `Domenica Gianmarco apre il lago`, `Sabato Lorenzo chiude il lago`, `Venerdì Gianmarco lago pomeriggio`, `Domenica serve Angelo al lago la mattina`. `apre il lago` significa 07:30-14:00; `chiude il lago` significa 14:00-18:30.
 - **Carico alto al lago / copertura extra**: `Domenica al lago ci sono molte prenotazioni`, `Sabato lago pieno`, `Domenica serve doppia copertura al lago`. Il PDF mostra una nota di attenzione e il motore prova ad aggiungere Giammarco come supporto extra se è disponibile e non bloccato dal calendario moglie.
-- **Regole speciali Lorenzo**: `Martedì Lorenzo deve lavorare`, `Martedì Lorenzo deve aprire il lago`, `Domenica Lorenzo non c’è`, `Sabato Lorenzo deve uscire alle 15`. Il motore prova a mantenere 40 ore, 5 giorni e 8 ore/giorno; se non ci riesce aggiunge avvisi chiari.
+- **Regole speciali Lorenzo**: `Martedì Lorenzo deve lavorare`, `Martedì Lorenzo deve aprire il lago`, `Domenica Lorenzo non c’è`, `Sabato Lorenzo deve uscire alle 15`. Il motore monitora il target 40 ore/5 giorni/8 ore come informazione: l’orario viene generato anche sotto o sopra target e il PDF evidenzia gli alert.
 - **Calendario moglie codice M**: se una nota forza `Gianmarco apre il lago` in una data con codice `M`, il motore non lo assegna all’apertura 07:30 e genera un conflitto esplicito.
 
 Esempio CLI veloce:
@@ -198,7 +231,7 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 
 - Se **Giammarco è richiesto in negozio** in un giorno in cui Lorenzo è al lago, il negozio viene coperto da Giammarco e Angelo può essere spostato sulla chiusura del lago 16:30-18:30.
 - Se **Lorenzo è assente domenica**, il motore sposta il suo quinto giorno sul martedì per conservare 5 giorni e 40 ore, mentre Giammarco copre il lago la domenica.
-- Se **Angelo è in ferie sabato**, Giammarco copre il negozio. La chiusura lago 16:30-18:30 resta scoperta perché, con Lorenzo vincolato a 8 ore e Angelo assente, non esiste una copertura completa possibile con le sole tre persone.
+- Se **Angelo è in ferie sabato**, Giammarco copre il negozio. La chiusura lago 16:30-18:30 viene evidenziata se resta scoperta; Lorenzo può comunque superare 8 ore se una nota operativa lo assegna a un turno più lungo.
 - Se **Giammarco è dal commercialista, in banca, dai fornitori o in amministrazione**, l’impegno viene registrato come lavoro aziendale esterno e non vale come copertura fissa di lago o negozio.
 
 ## Struttura tecnica
@@ -206,12 +239,13 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 - `src/orari_agent/business_rules.py` — regole di apertura, orari e vincoli fissi.
 - `src/orari_agent/people.py` — persone, ruoli e vincoli individuali.
 - `src/orari_agent/generator.py` — generazione e riequilibrio dell'orario settimanale.
-- `src/orari_agent/validator.py` — controlli su ore, giorni, coperture e conflitti.
+- `src/orari_agent/validator.py` — controlli su coperture e conflitti critici.
 - `src/orari_agent/formatter.py` — output italiano leggibile.
-- `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale separata dal motore di scheduling.
+- `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale operativo, separata dal motore di scheduling.
 - `src/orari_agent/wife_calendar.py` — regole del calendario persistente della moglie di Giammarco.
 - `src/orari_agent/wife_calendar_ocr.py` — lettura locale, opzionale e prudente della foto calendario moglie.
 - `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale e dei file YAML/JSON settimanali.
+- `src/orari_agent/presentation.py` — conversione dai blocchi interni ai turni effettivi e calcolo monte ore.
 
 ## Limiti intenzionali
 

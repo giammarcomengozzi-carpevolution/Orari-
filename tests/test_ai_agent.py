@@ -230,7 +230,7 @@ def test_ai_generation_request_triggers_generate_schedule(tmp_path):
 
     assert schedule_service.calls == [("2026-06-15", "2026-06-21")]
     assert result.tool_results[0].generated_schedule is not None
-    assert "Avvisi/conflitti" in result.user_message
+    assert "Conflitti critici" in result.user_message
 
 
 def test_destructive_action_requires_confirmation(tmp_path):
