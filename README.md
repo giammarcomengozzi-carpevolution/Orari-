@@ -92,14 +92,14 @@ La data nel nome deriva da `week_start` dentro `input/weekly_plan.yaml`.
 
 ## PDF operativo per WhatsApp/Telegram
 
-Il PDF settimanale è in formato **A4 orizzontale** e usa un layout a **card giornaliere**, pensato per sembrare un calendario operativo e non una tabella grezza del database. Ogni card mostra subito il giorno, la data e due sezioni principali: **LAGO** e **NEGOZIO**. Se necessario può comparire anche una sezione compatta per il **LAVORO ESTERNO**.
+Il PDF settimanale è in formato **A4 verticale** e usa un layout a **card giornaliere**, pensato per sembrare un calendario operativo e non una tabella grezza del database. Ogni card mostra subito il giorno, la data e due sezioni principali: **LAGO** e **NEGOZIO**. Se necessario può comparire anche una sezione compatta per il **LAVORO ESTERNO**.
 
 Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** quando i turni appartengono alla stessa sede. Se una persona copre più intervalli nello stesso giorno e nello stesso luogo, gli intervalli vengono uniti nella stessa riga. Esempio: invece di due righe separate `14:00-15:00` e `16:30-18:30`, la card mostra `14:00-15:00 / 16:30-18:30`.
 
 Le colonne operative della card sono:
 
 - `Persona`;
-- `Timeline / Orario`, con orario testuale e una piccola barra visiva della durata;
+- `Orario`, con soli orari testuali compatibili con anteprima iPhone/PDF;
 - `Pausa`;
 - `Compito`;
 - `Ore giorno`.
@@ -110,9 +110,9 @@ Esempi di righe leggibili:
 - `Angelo Antonelli | 09:00-12:30 / 15:30-19:30 | 12:30-15:30 | NEGOZIO | 7h 30m`;
 - `Gianmarco Mengozzi | 14:00-15:00 / 16:30-18:30 | - | LAGO + CHIUSURA LAGO | 3h 00m`.
 
-La timeline aggiunge una percezione rapida della durata, ad esempio `09:00-12:30 / 15:30-19:30 | 09:00 ━━━━ 12:30 / 15:30 ━━━━ 19:30`. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
+Le barre unicode della vecchia timeline sono state rimosse: il PDF usa solo testo semplice, ad esempio `07:30-16:30` oppure `09:00-12:30 / 15:30-19:30`, per evitare punti interrogativi su telefono e anteprime PDF. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
 
-La **pagina 1** contiene le card giornaliere finché lo spazio resta leggibile. Se la settimana non entra in una pagina, il PDF crea pagine di continuazione e mantiene tutte le card/righe senza omettere turni. In fondo viene mantenuta la sezione `Riepilogo monte ore settimanale` con Gianmarco, Angelo e Lorenzo.
+La **pagina 1** è pensata per contenere una settimana normale completa: intestazione compatta, card giornaliere verticali, riepilogo monte ore e note/alert in fondo. Se una settimana estrema contiene troppe note o troppe righe operative, il PDF può creare una pagina di continuazione senza omettere turni.
 
 I conflitti critici restano separati dagli alert informativi. Sono conflitti critici, ad esempio, coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in una data con codice moglie `M`, o assegnazioni su giorni chiusi senza apertura esplicita. Sono invece alert informativi gli scostamenti di Lorenzo dal target 40 ore o i turni lunghi.
 
@@ -273,7 +273,7 @@ PYTHONPATH=src python -m orari_agent "Giovedì io sono dal commercialista dalle 
 - `src/orari_agent/generator.py` — generazione e riequilibrio dell'orario settimanale.
 - `src/orari_agent/validator.py` — controlli su coperture e conflitti critici.
 - `src/orari_agent/formatter.py` — output italiano leggibile.
-- `src/orari_agent/pdf_exporter.py` — generazione PDF A4 orizzontale operativo, separata dal motore di scheduling.
+- `src/orari_agent/pdf_exporter.py` — generazione PDF A4 verticale operativo, separata dal motore di scheduling.
 - `src/orari_agent/wife_calendar.py` — regole del calendario persistente della moglie di Giammarco.
 - `src/orari_agent/wife_calendar_ocr.py` — lettura locale, opzionale e prudente della foto calendario moglie.
 - `src/orari_agent/weekly_input.py` — parser leggero delle istruzioni in linguaggio naturale e dei file YAML/JSON settimanali.
@@ -346,7 +346,7 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - protegge l'accesso con `ALLOWED_TELEGRAM_USER_ID`;
 - genera l'orario con le regole fisse di CarpeEvolution Store e Tenuta del Germano;
 - valida l'orario e riepiloga eventuali avvisi/conflitti;
-- crea un PDF A4 orizzontale pronto da inoltrare su Telegram o WhatsApp;
+- crea un PDF A4 verticale pronto da inoltrare su Telegram o WhatsApp;
 - invia il PDF direttamente nella chat Telegram;
 - accetta note vocali Telegram, file audio e documenti con MIME audio, li trascrive con OpenAI speech-to-text e passa il testo allo stesso AI Agent dei messaggi scritti;
 - mantiene una **memoria operativa persistente** per ferie, assenze future, appuntamenti ricorrenti e vincoli non legati solo alla settimana corrente;
