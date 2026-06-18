@@ -31,9 +31,8 @@ def test_export_weekly_schedule_pdf_creates_portrait_pdf_with_compact_layout(
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
     assert b"MARTEDI" in content
     assert b"SABATO" in content
-    assert b"Persona" in content
-    assert b"Orario" in content
-    assert b"Compito" in content
+    assert content.count(b"Persona") == 0
+    assert b" - Pausa " in content
     assert b"Lago mattina" not in content
     assert b"Negozio pomeriggio" not in content
     assert b"CONFLITTI CRITICI" in content
@@ -119,10 +118,8 @@ def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert b"Persona" in content
-    assert b"Orario" in content
-    assert b"Pausa" in content
-    assert b"Compito" in content
+    assert content.count(b"Persona") == 0
+    assert b" - Pausa " in content
     assert b"Lago mattina" not in content
     assert b"Lago pomeriggio" not in content
     assert b"Negozio mattina" not in content
@@ -194,7 +191,7 @@ def test_operational_pdf_uses_day_cards_and_keeps_weekly_totals(tmp_path):
         assert day in content
     assert b"LAGO" in content
     assert b"NEGOZIO" in content
-    assert b"Orario" in content
+    assert b" - Pausa " in content
     assert b"RIEPILOGO MONTE ORE" in content
     assert b"OK 40h" in content
 
@@ -348,3 +345,38 @@ def test_operational_pdf_does_not_claim_unprinted_detail_shifts(tmp_path):
     content = pdf_path.read_bytes()
 
     assert b"turni disponibili nei dettagli" not in content
+
+
+def test_day_block_height_increases_when_shift_line_wraps():
+    from dataclasses import replace
+    from orari_agent.pdf_exporter import _measure_day_block_height
+
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(
+        view for view in operational_day_views(schedule) if view.day == "Venerdì"
+    )
+    lake = next(
+        section for section in friday.location_sections if section.location == "LAGO"
+    )
+    long_row = replace(
+        lake.rows[0],
+        task="EVENTO SERALE LAGO + CHIUSURA LAGO 23:00 + CONTROLLO PRENOTAZIONI + SUPPORTO CLIENTI + VERIFICA CASSA + CONSEGNA CHIAVI + ASSISTENZA CLIENTI EXTRA",
+    )
+    long_lake = replace(lake, rows=(long_row,))
+    short_lake = replace(lake, rows=(lake.rows[0],))
+
+    assert _measure_day_block_height(
+        replace(friday, location_sections=(long_lake,))
+    ) > _measure_day_block_height(replace(friday, location_sections=(short_lake,)))
+
+
+def test_operational_pdf_creates_second_page_for_busy_content_instead_of_overlap(
+    tmp_path,
+):
+    schedule = _schedule_with_many_effective_shifts(80)
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert content.count(b"/Type /Page /Parent") >= 2
+    assert b"Pagina 2" in content

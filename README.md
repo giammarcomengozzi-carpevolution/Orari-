@@ -96,19 +96,21 @@ Il PDF settimanale è in formato **A4 verticale** e usa un layout a **card giorn
 
 Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** quando i turni appartengono alla stessa sede. Se una persona copre più intervalli nello stesso giorno e nello stesso luogo, gli intervalli vengono uniti nella stessa riga. Esempio: invece di due righe separate `14:00-15:00` e `16:30-18:30`, la card mostra `14:00-15:00 / 16:30-18:30`.
 
-Le colonne operative della card sono:
+Il PDF non forza piu tutta la settimana in una sola pagina: la leggibilita ha priorita sulla compressione. Le settimane semplici possono stare in una pagina, mentre le settimane normali o piene possono usare due pagine; se il riepilogo non entra sotto le card, viene spostato in una pagina di riepilogo.
 
-- `Persona`;
-- `Orario`, con soli orari testuali compatibili con anteprima iPhone/PDF;
-- `Pausa`;
-- `Compito`;
-- `Ore giorno`.
+Le mini-intestazioni ripetute dentro ogni card sono state rimosse. Ogni turno viene mostrato come una riga testuale semplice nel formato:
+
+```text
+Persona - Orario - Pausa intervallo - Compito - Ore giorno
+```
 
 Esempi di righe leggibili:
 
-- `Lorenzo Sansavini | 07:30-16:30 | 14:00-15:00 | APERTURA LAGO | 8h 00m`;
-- `Angelo Antonelli | 09:00-12:30 / 15:30-19:30 | 12:30-15:30 | NEGOZIO | 7h 30m`;
-- `Gianmarco Mengozzi | 14:00-15:00 / 16:30-18:30 | - | LAGO + CHIUSURA LAGO | 3h 00m`.
+- `Lorenzo Sansavini - 07:30-16:30 - Pausa 14:00-15:00 - APERTURA LAGO - 8h 00m`;
+- `Angelo Antonelli - 09:00-12:30 / 15:30-19:30 - Pausa 12:30-15:30 - NEGOZIO - 7h 30m`;
+- `Gianmarco Mengozzi - 14:00-15:00 / 16:30-18:30 - Pausa - - LAGO + CHIUSURA LAGO - 3h 00m`.
+
+Le giornate chiuse restano compatte, ad esempio `LUNEDI 22/06` seguito da `Lago chiuso | Negozio chiuso`, senza grandi box vuoti.
 
 Le barre unicode della vecchia timeline sono state rimosse: il PDF usa solo testo semplice, ad esempio `07:30-16:30` oppure `09:00-12:30 / 15:30-19:30`, per evitare punti interrogativi su telefono e anteprime PDF. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
 
