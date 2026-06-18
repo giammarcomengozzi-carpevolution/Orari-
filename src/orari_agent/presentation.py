@@ -235,6 +235,22 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
     )
     for person, assignments in by_person.items():
         intervals = _merged_intervals(assignments)
+        if any(_to_minutes(end) > _to_minutes("18:30") for _, end in intervals):
+            for start, end in intervals:
+                hours = _lake_hours(start, end)
+                shifts.append(
+                    EffectiveShift(
+                        day.day,
+                        date_label,
+                        person,
+                        "Lago",
+                        f"{start}-{end}",
+                        _lake_break_for_interval(start, end),
+                        _task_for_lake_interval(start, end, hours),
+                        working_hours=hours,
+                    )
+                )
+            continue
         if _covers(intervals, "07:30", "18:30"):
             shifts.append(
                 EffectiveShift(
@@ -360,6 +376,14 @@ def _covers(intervals: list[tuple[str, str]], start: str, end: str) -> bool:
 def _task_for_lake_interval(start: str, end: str, hours: float) -> str:
     if end == "23:00":
         return _long_task("EVENTO SERALE LAGO / CHIUSURA LAGO 23:00", hours)
+    if _to_minutes(start) >= _to_minutes("19:30") and _to_minutes(end) <= _to_minutes(
+        "22:00"
+    ):
+        return _long_task("SUPPORTO SERALE LAGO", hours)
+    if _to_minutes(end) > _to_minutes("18:30") and start == "07:30":
+        return _long_task("APERTURA LAGO / EVENTO SERALE LAGO", hours)
+    if _to_minutes(end) > _to_minutes("18:30"):
+        return _long_task("LAGO / EVENTO SERALE LAGO", hours)
     if start == "07:30" and end == "16:30":
         return _long_task("APERTURA LAGO", hours)
     if start == "09:30" and end == "18:30":
@@ -385,6 +409,20 @@ def _long_task(base: str, hours: float) -> str:
 def _lake_break_for_interval(start: str, end: str) -> str:
     start_minutes = _to_minutes(start)
     end_minutes = _to_minutes(end)
+    if (
+        start_minutes <= _to_minutes("16:00")
+        and _to_minutes("17:00") <= end_minutes
+        and start_minutes >= _to_minutes("10:00")
+        and end_minutes >= _to_minutes("23:00")
+    ):
+        return "16:00-17:00"
+    if (
+        start_minutes <= _to_minutes("15:00")
+        and _to_minutes("16:00") <= end_minutes
+        and start_minutes >= _to_minutes("09:00")
+        and end_minutes >= _to_minutes("22:00")
+    ):
+        return "15:00-16:00"
     if start_minutes < _to_minutes("14:00") and _to_minutes("15:00") < end_minutes:
         return "14:00-15:00"
     if start_minutes < _to_minutes("13:30") and _to_minutes("14:30") < end_minutes:

@@ -125,7 +125,14 @@ Dal **22 giugno 2026** al **30 settembre 2026** compresi, la Tenuta del Germano 
 
 Questa è una regola operativa reale per aperitivi, cene ed eventi serali: il motore aggiunge copertura lago obbligatoria `18:30-23:00` e il PDF mostra l’intestazione `Lago aperto 07:30-23:00 (evento serale)`.
 
-Se non ci sono istruzioni specifiche, la copertura serale viene assegnata in ordine preferenziale a Gianmarco, poi Angelo, poi Lorenzo. Se nessuno è disponibile, il PDF viene comunque generato e compare un conflitto critico: `Copertura mancante evento serale lago dalle 18:30 alle 23:00.` La copertura serale conta nel monte ore settimanale come lavoro reale.
+Se nessuno è disponibile, il PDF viene comunque generato e compare un conflitto critico: `Copertura mancante evento serale lago dalle 18:30 alle 23:00.` La copertura serale conta nel monte ore settimanale come lavoro reale.
+
+Per rendere i turni sostenibili con le tre persone attuali, il generatore usa una rotazione deterministica basata sulla settimana:
+
+- **venerdì stagionale**: Angelo resta in negozio fino alle `19:30` e viene aggiunto come supporto lago serale predefinito `20:00-22:00`; Gianmarco e Lorenzo sono i due operatori principali del lago, uno in apertura lunga e uno in chiusura fino alle `23:00`;
+- **domenica stagionale**: il negozio è chiuso e tutti e tre possono lavorare al lago con turni lunghi scaglionati, ad esempio `07:30-21:00`, `09:00-22:00`, `11:00-23:00`;
+- la rotazione evita, in modo semplice e ripetibile, che la stessa persona apra o chiuda sempre;
+- se l'utente dà una fascia esplicita, ad esempio `Venerdì sera Angelo al lago dalle 19:30 alle 23`, quella richiesta viene rispettata se non crea sovrapposizioni personali.
 
 Etichette semplici usate nella colonna `Compito`:
 

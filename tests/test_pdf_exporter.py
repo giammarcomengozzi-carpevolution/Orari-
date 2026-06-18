@@ -149,7 +149,7 @@ def test_operational_day_view_contains_lake_and_shop_sections_for_each_day():
 
 
 def test_operational_pdf_uses_day_cards_and_keeps_weekly_totals(tmp_path):
-    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    schedule = generate_weekly_schedule("", week_start_date="2026-10-05")
 
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
@@ -199,6 +199,9 @@ def test_pdf_day_card_headers_show_seasonal_evening_lake_opening(tmp_path):
     assert b"Lago aperto 07:30-23:00 \\(evento serale\\)  |  Negozio chiuso" in content
     assert b"EVENTO SERALE LAGO" in content
     assert b"CHIUSURA LAGO 23:00" in content
+    assert b"SUPPORTO SERALE LAGO" in content
+    assert b"20:00-22:00" in content
+    assert b"09:00-12:30 / 15:30-19:30" in content
 
 
 def _schedule_with_many_effective_shifts(count: int):

@@ -282,14 +282,19 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
 
         explicit_work_range = _time_range_in_text(lowered)
         if people and days and _mentions_evening_lake_coverage_context(lowered):
+            evening_start, evening_end = _evening_lake_range_for_text(lowered)
             for person in people:
                 for day in days:
                     request = CoverageRequest(
                         day,
                         person,
                         ActivityId.LAKE,
-                        "18:30",
-                        "23:00",
+                        (
+                            explicit_work_range[0]
+                            if explicit_work_range
+                            else evening_start
+                        ),
+                        explicit_work_range[1] if explicit_work_range else evening_end,
                         "evento serale lago",
                     )
                     instruction.forced_lake_coverage.append(request)
@@ -1212,8 +1217,25 @@ def _mentions_evening_lake_coverage_context(lowered_text: str) -> bool:
         return False
     return any(
         word in lowered_text
-        for word in ("sera", "serale", "fino alle 23", "fino a 23", "23:00")
+        for word in (
+            "sera",
+            "serale",
+            "fino alle 23",
+            "fino a 23",
+            "23:00",
+            "dopo il negozio",
+            "finito il negozio",
+        )
     )
+
+
+def _evening_lake_range_for_text(lowered_text: str) -> tuple[str, str]:
+    if any(
+        text in lowered_text
+        for text in ("dopo il negozio", "finito il negozio", "dopo negozio")
+    ):
+        return "20:00", "22:00"
+    return "18:30", "23:00"
 
 
 def _mentions_extra_lake_coverage(lowered_text: str) -> bool:
