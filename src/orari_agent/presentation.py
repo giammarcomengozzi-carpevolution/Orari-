@@ -234,24 +234,24 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
         [*day.lake_morning, *day.lake_afternoon], ActivityId.LAKE
     )
     for person, assignments in by_person.items():
-        intervals = _merged_intervals(assignments)
-        if any(_to_minutes(end) > _to_minutes("18:30") for _, end in intervals):
-            for start, end in intervals:
-                hours = _lake_hours(start, end)
-                shifts.append(
-                    EffectiveShift(
-                        day.day,
-                        date_label,
-                        person,
-                        "Lago",
-                        f"{start}-{end}",
-                        _lake_break_for_interval(start, end),
-                        _task_for_lake_interval(start, end, hours),
-                        working_hours=hours,
-                    )
+        if _has_real_lake_assignment_metadata(assignments):
+            shifts.extend(
+                _lake_shift_from_assignment(day, date_label, assignment)
+                for assignment in sorted(
+                    assignments, key=lambda item: _to_minutes(item.start)
                 )
+            )
             continue
-        if _covers(intervals, "07:30", "18:30"):
+
+        intervals = _merged_intervals(assignments)
+        if (
+            person == LORENZO.full_name
+            and _covers(intervals, "07:30", "18:30")
+            or any(
+                assignment.start == "07:30" and assignment.end == "18:30"
+                for assignment in assignments
+            )
+        ):
             shifts.append(
                 EffectiveShift(
                     day.day,
@@ -264,6 +264,12 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
                     working_hours=10.0,
                 )
             )
+            continue
+        if any(_to_minutes(end) > _to_minutes("18:30") for _, end in intervals):
+            for assignment in sorted(
+                assignments, key=lambda item: _to_minutes(item.start)
+            ):
+                shifts.append(_lake_shift_from_assignment(day, date_label, assignment))
             continue
         consumed: set[tuple[str, str]] = set()
         if _covers(intervals, "07:30", "14:00") and _covers(
@@ -284,6 +290,7 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
                 )
             )
             consumed.update({("07:30", "14:00"), ("15:00", "16:30")})
+            continue
         if _covers(intervals, "14:00", "18:30") and not _covers(
             intervals, "07:30", "14:00"
         ):
@@ -300,6 +307,20 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
                 )
             )
             consumed.add(("14:00", "18:30"))
+        if not consumed and _covers(intervals, "07:30", "18:30"):
+            shifts.append(
+                EffectiveShift(
+                    day.day,
+                    date_label,
+                    person,
+                    "Lago",
+                    "07:30-18:30",
+                    "14:00-15:00",
+                    "APERTURA LAGO / CHIUSURA LAGO / TURNO LUNGO",
+                    working_hours=10.0,
+                )
+            )
+            continue
         for start, end in intervals:
             if (start, end) in consumed:
                 continue
@@ -319,6 +340,36 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
                 )
             )
     return shifts
+
+
+def _has_real_lake_assignment_metadata(assignments: list[Assignment]) -> bool:
+    return any(
+        assignment.break_label or _to_minutes(assignment.end) > _to_minutes("18:30")
+        for assignment in assignments
+    )
+
+
+def _lake_shift_from_assignment(
+    day: DaySchedule, date_label: str, assignment: Assignment
+) -> EffectiveShift:
+    break_time = assignment.break_label or _lake_break_for_interval(
+        assignment.start, assignment.end
+    )
+    hours = (
+        assignment.working_hours
+        if assignment.break_label
+        else _lake_hours(assignment.start, assignment.end)
+    )
+    return EffectiveShift(
+        day.day,
+        date_label,
+        assignment.person,
+        "Lago",
+        f"{assignment.start}-{assignment.end}",
+        break_time,
+        _task_for_lake_interval(assignment.start, assignment.end, hours),
+        working_hours=hours,
+    )
 
 
 def _external_work_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
