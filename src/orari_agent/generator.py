@@ -18,6 +18,10 @@ from .weekly_input import CoverageRequest, WeeklyInstruction, parse_weekly_instr
 from .wife_calendar import WifeCalendarRepository, can_giammarco_open_lake_at_0730
 
 LAKE_FULL_DAY = ("07:30", "18:30")
+SEASONAL_EVENING_START = date(2026, 6, 22)
+SEASONAL_EVENING_END = date(2026, 9, 30)
+LAKE_SEASONAL_EVENT_DAYS = {"Venerdì", "Domenica"}
+LAKE_EVENING_EVENT = ("18:30", "23:00")
 SHOP_MORNING = ("09:00", "12:30")
 SHOP_AFTERNOON = ("15:30", "19:30")
 
@@ -100,7 +104,10 @@ def _coverage_request(
 
 
 def _required_ranges_for(
-    day: str, activity: ActivityId, instruction: WeeklyInstruction
+    day: str,
+    activity: ActivityId,
+    instruction: WeeklyInstruction,
+    week_dates: dict[str, str] | None = None,
 ) -> list[tuple[str, str]]:
     base: list[tuple[str, str]] = []
     if activity == ActivityId.LAKE:
@@ -108,6 +115,8 @@ def _required_ranges_for(
             instruction, day, activity
         ):
             base = [LAKE_FULL_DAY]
+        if _has_seasonal_evening_lake_opening(day, week_dates):
+            base = [*base, LAKE_EVENING_EVENT]
     elif day in CARPEEVOLUTION_STORE.open_days or _has_exceptional_opening(
         instruction, day, activity
     ):
@@ -129,6 +138,42 @@ def _required_ranges_for(
         else:
             base = _subtract_closed_range(base, _period_range(activity, closure.period))
     return base
+
+
+def lake_opening_label(day: str, date_label: str | None = None) -> str:
+    """Etichetta di apertura lago per intestazioni PDF e riepiloghi."""
+
+    if day not in TENUTA_DEL_GERMANO.open_days:
+        return "Lago chiuso"
+    if _has_seasonal_evening_lake_opening(day, _single_week_date(day, date_label)):
+        return "Lago aperto 07:30-23:00 (evento serale)"
+    return "Lago aperto 07:30-18:30"
+
+
+def shop_opening_label(day: str) -> str:
+    """Etichetta di apertura negozio per intestazioni PDF e riepiloghi."""
+
+    if day not in CARPEEVOLUTION_STORE.open_days:
+        return "Negozio chiuso"
+    return "Negozio aperto 09:00-12:30 / 15:30-19:30"
+
+
+def _single_week_date(day: str, date_label: str | None) -> dict[str, str] | None:
+    if not date_label:
+        return None
+    return {day: date_label}
+
+
+def _has_seasonal_evening_lake_opening(
+    day: str, week_dates: dict[str, str] | None
+) -> bool:
+    if day not in LAKE_SEASONAL_EVENT_DAYS or not week_dates:
+        return False
+    date_label = week_dates.get(day)
+    if not date_label:
+        return False
+    current = datetime.strptime(date_label, "%Y-%m-%d").date()
+    return SEASONAL_EVENING_START <= current <= SEASONAL_EVENING_END
 
 
 def _subtract_closed_range(
@@ -278,10 +323,10 @@ def _build_day(
 ) -> DaySchedule:
     day_schedule = DaySchedule(day=day)
     day_schedule.lake_required_ranges = _required_ranges_for(
-        day, ActivityId.LAKE, instruction
+        day, ActivityId.LAKE, instruction, week_dates
     )
     day_schedule.shop_required_ranges = _required_ranges_for(
-        day, ActivityId.SHOP, instruction
+        day, ActivityId.SHOP, instruction, week_dates
     )
     unavailable = {
         person
@@ -292,6 +337,16 @@ def _build_day(
     _add_closure_and_absence_notes(day_schedule, unavailable)
     _add_time_range_absence_notes(day_schedule, instruction)
     _add_giammarco_external_work(day_schedule, instruction)
+    if _has_seasonal_evening_lake_opening(day, week_dates):
+        _assign_forced_coverage(day_schedule, instruction, wife_codes, week_dates)
+        _assign_default_angelo_shop(day_schedule, instruction)
+        _assign_seasonal_evening_defaults(
+            day_schedule, instruction, wife_codes, week_dates
+        )
+        _fill_required_coverage(day_schedule, instruction, wife_codes, week_dates)
+        _apply_notes(day_schedule, instruction, wife_codes, week_dates)
+        return day_schedule
+
     _assign_lorenzo_default_lake(day_schedule, lorenzo_days, instruction)
     _assign_forced_coverage(day_schedule, instruction, wife_codes, week_dates)
     _assign_default_angelo_shop(day_schedule, instruction)
@@ -299,6 +354,110 @@ def _build_day(
     _apply_notes(day_schedule, instruction, wife_codes, week_dates)
 
     return day_schedule
+
+
+def _assign_seasonal_evening_defaults(
+    day_schedule: DaySchedule,
+    instruction: WeeklyInstruction,
+    wife_codes: dict[str, str],
+    week_dates: dict[str, str],
+) -> None:
+    if day_schedule.day == "Venerdì":
+        _assign_friday_evening_defaults(
+            day_schedule, instruction, wife_codes, week_dates
+        )
+    elif day_schedule.day == "Domenica":
+        _assign_sunday_evening_defaults(
+            day_schedule, instruction, wife_codes, week_dates
+        )
+
+
+def _assign_friday_evening_defaults(
+    day_schedule: DaySchedule,
+    instruction: WeeklyInstruction,
+    wife_codes: dict[str, str],
+    week_dates: dict[str, str],
+) -> None:
+    opener, closer = _friday_primary_lake_people(week_dates.get(day_schedule.day))
+    _append_if_assignable(
+        day_schedule,
+        opener,
+        ActivityId.LAKE,
+        "07:30",
+        "21:30",
+        instruction,
+        wife_codes,
+        week_dates,
+        break_label="14:00-15:00",
+    )
+    _append_if_assignable(
+        day_schedule,
+        closer,
+        ActivityId.LAKE,
+        "10:00",
+        "23:00",
+        instruction,
+        wife_codes,
+        week_dates,
+        break_label="16:00-17:00",
+    )
+    _append_if_assignable(
+        day_schedule,
+        ANGELO.full_name,
+        ActivityId.LAKE,
+        "20:00",
+        "22:00",
+        instruction,
+        wife_codes,
+        week_dates,
+    )
+
+
+def _assign_sunday_evening_defaults(
+    day_schedule: DaySchedule,
+    instruction: WeeklyInstruction,
+    wife_codes: dict[str, str],
+    week_dates: dict[str, str],
+) -> None:
+    people = _sunday_lake_people(week_dates.get(day_schedule.day))
+    slots = (
+        ("07:30", "21:00", "14:00-15:00"),
+        ("09:00", "22:00", "15:00-16:00"),
+        ("11:00", "23:00", "16:00-17:00"),
+    )
+    for person, (start, end, break_label) in zip(people, slots, strict=True):
+        _append_if_assignable(
+            day_schedule,
+            person,
+            ActivityId.LAKE,
+            start,
+            end,
+            instruction,
+            wife_codes,
+            week_dates,
+            break_label=break_label,
+        )
+
+
+def _friday_primary_lake_people(date_label: str | None) -> tuple[str, str]:
+    if _iso_week_number(date_label) % 2 == 0:
+        return GIAMMARCO.full_name, LORENZO.full_name
+    return LORENZO.full_name, GIAMMARCO.full_name
+
+
+def _sunday_lake_people(date_label: str | None) -> tuple[str, str, str]:
+    rotations = (
+        (LORENZO.full_name, ANGELO.full_name, GIAMMARCO.full_name),
+        (GIAMMARCO.full_name, LORENZO.full_name, ANGELO.full_name),
+        (ANGELO.full_name, GIAMMARCO.full_name, LORENZO.full_name),
+    )
+    return rotations[_iso_week_number(date_label) % len(rotations)]
+
+
+def _iso_week_number(date_label: str | None) -> int:
+    if not date_label:
+        return 0
+    return datetime.strptime(date_label, "%Y-%m-%d").date().isocalendar().week
 
 
 def _add_closure_and_absence_notes(
@@ -474,15 +633,21 @@ def _fill_lake_coverage(
 ) -> None:
     if not day_schedule.lake_required_ranges:
         return
-    _fill_activity_ranges(
-        day_schedule,
-        ActivityId.LAKE,
-        day_schedule.lake_required_ranges,
-        (GIAMMARCO.full_name, ANGELO.full_name),
-        instruction,
-        wife_codes,
-        week_dates,
-    )
+    for start, end in day_schedule.lake_required_ranges:
+        candidates = (
+            (GIAMMARCO.full_name, ANGELO.full_name, LORENZO.full_name)
+            if _to_minutes(end) > _to_minutes("18:30")
+            else (GIAMMARCO.full_name, ANGELO.full_name)
+        )
+        _fill_activity_ranges(
+            day_schedule,
+            ActivityId.LAKE,
+            [(start, end)],
+            candidates,
+            instruction,
+            wife_codes,
+            week_dates,
+        )
 
 
 def _fill_shop_coverage(
@@ -541,41 +706,39 @@ def _assign_first_available(
     wife_codes: dict[str, str],
     week_dates: dict[str, str],
 ) -> None:
-    giammarco_conflict = _conflicting_interval(
-        day_schedule, GIAMMARCO.full_name, start, end
-    )
-    if (
-        activity == ActivityId.LAKE
-        and GIAMMARCO.full_name in candidate_people
-        and giammarco_conflict is not None
-        and giammarco_conflict[0] <= _to_minutes(start)
-        and giammarco_conflict[1] < _to_minutes(end)
-    ):
-        split = _to_label(giammarco_conflict[1])
-        fallback_people = tuple(
-            person for person in candidate_people if person != GIAMMARCO.full_name
-        )
-        _assign_first_available(
-            day_schedule,
-            activity,
-            start,
-            split,
-            fallback_people,
-            instruction,
-            wife_codes,
-            week_dates,
-        )
-        _assign_first_available(
-            day_schedule,
-            activity,
-            split,
-            end,
-            candidate_people,
-            instruction,
-            wife_codes,
-            week_dates,
-        )
-        return
+    for conflicted_person in candidate_people:
+        conflict = _conflicting_interval(day_schedule, conflicted_person, start, end)
+        if (
+            activity == ActivityId.LAKE
+            and conflict is not None
+            and conflict[0] <= _to_minutes(start)
+            and conflict[1] < _to_minutes(end)
+        ):
+            split = _to_label(conflict[1])
+            fallback_people = tuple(
+                person for person in candidate_people if person != conflicted_person
+            )
+            _assign_first_available(
+                day_schedule,
+                activity,
+                start,
+                split,
+                fallback_people,
+                instruction,
+                wife_codes,
+                week_dates,
+            )
+            _assign_first_available(
+                day_schedule,
+                activity,
+                split,
+                end,
+                candidate_people,
+                instruction,
+                wife_codes,
+                week_dates,
+            )
+            return
 
     for person in candidate_people:
         if instruction.person_is_absent_for_range(person, day_schedule.day, start, end):
@@ -710,6 +873,31 @@ def _append_if_no_person_conflict(
         _append_assignment(day_schedule, _assignment(person, activity, start, end))
 
 
+def _append_if_assignable(
+    day_schedule: DaySchedule,
+    person: str,
+    activity: ActivityId,
+    start: str,
+    end: str,
+    instruction: WeeklyInstruction,
+    wife_codes: dict[str, str],
+    week_dates: dict[str, str],
+    *,
+    break_label: str | None = None,
+) -> bool:
+    if _person_covers_range(day_schedule, person, activity, start, end):
+        return False
+    if not _can_assign_person(
+        day_schedule, person, activity, start, end, instruction, wife_codes, week_dates
+    ):
+        return False
+    _append_assignment(
+        day_schedule,
+        _assignment(person, activity, start, end, break_label=break_label),
+    )
+    return True
+
+
 def _append_assignment(day_schedule: DaySchedule, assignment: Assignment) -> None:
     target = {
         (ActivityId.LAKE, "morning"): day_schedule.lake_morning,
@@ -722,9 +910,26 @@ def _append_assignment(day_schedule: DaySchedule, assignment: Assignment) -> Non
     target.append(assignment)
 
 
-def _assignment(person: str, activity: ActivityId, start: str, end: str) -> Assignment:
+def _assignment(
+    person: str,
+    activity: ActivityId,
+    start: str,
+    end: str,
+    *,
+    break_label: str | None = None,
+) -> Assignment:
+    hours = _hours_between(start, end)
+    if break_label:
+        break_start, break_end = break_label.split("-", 1)
+        hours -= _hours_between(break_start, break_end)
     return Assignment(
-        person, activity, _period_for(start), start, end, _hours_between(start, end)
+        person,
+        activity,
+        _period_for(start),
+        start,
+        end,
+        hours,
+        break_label=break_label,
     )
 
 

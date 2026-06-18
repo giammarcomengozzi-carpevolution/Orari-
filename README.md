@@ -92,20 +92,52 @@ La data nel nome deriva da `week_start` dentro `input/weekly_plan.yaml`.
 
 ## PDF operativo per WhatsApp/Telegram
 
-Il PDF settimanale è in formato **A4 orizzontale** e privilegia la leggibilità operativa rispetto alla grafica. Non è più organizzato sulle colonne interne del motore (`Lago mattina`, `Lago pomeriggio`, `Negozio mattina`, `Negozio pomeriggio`): quelle fasce possono restare nel motore, ma il PDF mostra i **turni reali per persona**.
+Il PDF settimanale è in formato **A4 orizzontale** e usa un layout a **card giornaliere**, pensato per sembrare un calendario operativo e non una tabella grezza del database. Ogni card mostra subito il giorno, la data e due sezioni principali: **LAGO** e **NEGOZIO**. Se necessario può comparire anche una sezione compatta per il **LAVORO ESTERNO**.
 
-La **pagina 1** contiene:
+Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** quando i turni appartengono alla stessa sede. Se una persona copre più intervalli nello stesso giorno e nello stesso luogo, gli intervalli vengono uniti nella stessa riga. Esempio: invece di due righe separate `14:00-15:00` e `16:30-18:30`, la card mostra `14:00-15:00 / 16:30-18:30`.
 
-- intestazione `Orario settimanale` con intervallo `Settimana: YYYY-MM-DD / YYYY-MM-DD`;
-- tabella principale con colonne `Giorno`, `Data`, `Persona`, `Sede`, `Orario`, `Pausa`, `Compito`, `Note`;
-- una riga per persona/turno, ad esempio `Gianmarco Mengozzi | Lago | 07:30-16:30 | 14:00-15:00 | APERTURA LAGO`;
-- turni negozio a giornata intera in forma spezzata, ad esempio `09:00-12:30 / 15:30-19:30` con pausa `12:30-15:30`;
-- sezione `Riepilogo monte ore settimanale` con Gianmarco, Angelo e Lorenzo;
-- riquadro `Conflitti critici / alert` che separa i problemi veri dagli alert informativi.
+Le colonne operative della card sono:
+
+- `Persona`;
+- `Timeline / Orario`, con orario testuale e una piccola barra visiva della durata;
+- `Pausa`;
+- `Compito`;
+- `Ore giorno`.
+
+Esempi di righe leggibili:
+
+- `Lorenzo Sansavini | 07:30-16:30 | 14:00-15:00 | APERTURA LAGO | 8h 00m`;
+- `Angelo Antonelli | 09:00-12:30 / 15:30-19:30 | 12:30-15:30 | NEGOZIO | 7h 30m`;
+- `Gianmarco Mengozzi | 14:00-15:00 / 16:30-18:30 | - | LAGO + CHIUSURA LAGO | 3h 00m`.
+
+La timeline aggiunge una percezione rapida della durata, ad esempio `09:00-12:30 / 15:30-19:30 | 09:00 ━━━━ 12:30 / 15:30 ━━━━ 19:30`. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
+
+La **pagina 1** contiene le card giornaliere finché lo spazio resta leggibile. Se la settimana non entra in una pagina, il PDF crea pagine di continuazione e mantiene tutte le card/righe senza omettere turni. In fondo viene mantenuta la sezione `Riepilogo monte ore settimanale` con Gianmarco, Angelo e Lorenzo.
+
+I conflitti critici restano separati dagli alert informativi. Sono conflitti critici, ad esempio, coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in una data con codice moglie `M`, o assegnazioni su giorni chiusi senza apertura esplicita. Sono invece alert informativi gli scostamenti di Lorenzo dal target 40 ore o i turni lunghi.
+
+### Apertura serale stagionale lago 2026
+
+Dal **22 giugno 2026** al **30 settembre 2026** compresi, la Tenuta del Germano resta aperta fino alle **23:00** ogni:
+
+- **venerdì**;
+- **domenica**.
+
+Questa è una regola operativa reale per aperitivi, cene ed eventi serali: il motore aggiunge copertura lago obbligatoria `18:30-23:00` e il PDF mostra l’intestazione `Lago aperto 07:30-23:00 (evento serale)`.
+
+Se nessuno è disponibile, il PDF viene comunque generato e compare un conflitto critico: `Copertura mancante evento serale lago dalle 18:30 alle 23:00.` La copertura serale conta nel monte ore settimanale come lavoro reale.
+
+Per rendere i turni sostenibili con le tre persone attuali, il generatore usa una rotazione deterministica basata sulla settimana:
+
+- **venerdì stagionale**: Angelo resta in negozio fino alle `19:30` e viene aggiunto come supporto lago serale predefinito `20:00-22:00`; Gianmarco e Lorenzo sono i due operatori principali del lago, uno in apertura lunga e uno in chiusura fino alle `23:00`;
+- **domenica stagionale**: il negozio è chiuso e tutti e tre possono lavorare al lago con turni lunghi scaglionati, ad esempio `07:30-21:00`, `09:00-22:00`, `11:00-23:00`;
+- la rotazione evita, in modo semplice e ripetibile, che la stessa persona apra o chiuda sempre;
+- se l'utente dà una fascia esplicita, ad esempio `Venerdì sera Angelo al lago dalle 19:30 alle 23`, quella richiesta viene rispettata se non crea sovrapposizioni personali.
 
 Etichette semplici usate nella colonna `Compito`:
 
 - `APERTURA LAGO`, `CHIUSURA LAGO`, `LAGO`;
+- `EVENTO SERALE LAGO`, `CHIUSURA LAGO 23:00`;
 - `APERTURA NEGOZIO`, `CHIUSURA NEGOZIO`, `NEGOZIO`;
 - `LAVORO ESTERNO`;
 - `TURNO LUNGO` quando un turno effettivo supera le 8 ore.

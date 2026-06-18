@@ -80,6 +80,56 @@ def test_parser_supports_absence_and_giammarco_lake_instruction():
     assert instruction.giammarco_lake_days == {"Venerdì"}
 
 
+def test_parser_understands_evening_lake_event_context():
+    instruction = parse_weekly_instruction("Venerdì sera evento al lago")
+
+    assert instruction.high_lake_booking_days == {"Venerdì"}
+    assert instruction.day_notes["Venerdì"] == [
+        "Evento serale lago: apertura fino alle 23:00"
+    ]
+
+
+def test_parser_understands_sunday_evening_aperitivo_until_23():
+    instruction = parse_weekly_instruction(
+        "Domenica sera aperitivo al lago fino alle 23"
+    )
+
+    assert instruction.high_lake_booking_days == {"Domenica"}
+    assert instruction.day_notes["Domenica"] == [
+        "Evento serale lago: apertura fino alle 23:00"
+    ]
+
+
+def test_parser_saves_specific_evening_lake_assignment():
+    instruction = parse_weekly_instruction(
+        "Settimana prossima per la domenica sera metti Gianmarco al lago"
+    )
+
+    assert any(
+        request.day == "Domenica"
+        and request.person == GIAMMARCO
+        and request.activity == "lake"
+        and request.start == "18:30"
+        and request.end == "23:00"
+        for request in instruction.forced_lake_coverage
+    )
+
+
+def test_parser_understands_angelo_after_shop_evening_support():
+    instruction = parse_weekly_instruction(
+        "Venerdì sera Angelo viene al lago dopo il negozio"
+    )
+
+    assert any(
+        request.day == "Venerdì"
+        and request.person == "Angelo Antonelli"
+        and request.activity == "lake"
+        and request.start == "20:00"
+        and request.end == "22:00"
+        for request in instruction.forced_lake_coverage
+    )
+
+
 def test_giammarco_shop_instruction_rebalances_lake_closing_with_angelo():
     schedule = generate_weekly_schedule(
         "Giovedì Giammarco deve stare in negozio per fatture"
@@ -215,9 +265,7 @@ def test_wife_calendar_p_is_ignored():
 
     assert sunday.warnings == []
     assert any(
-        assignment.person == GIAMMARCO
-        and assignment.activity == "lake"
-        and assignment.start == "07:30"
+        assignment.person == GIAMMARCO and assignment.activity == "lake"
         for assignment in sunday.assignments()
     )
 
@@ -232,11 +280,158 @@ def test_missing_future_wife_calendar_month_is_unrestricted():
 
     assert sunday.warnings == []
     assert any(
-        assignment.person == GIAMMARCO
-        and assignment.activity == "lake"
-        and assignment.start == "07:30"
+        assignment.person == GIAMMARCO and assignment.activity == "lake"
         for assignment in sunday.assignments()
     )
+
+
+def test_seasonal_friday_lake_evening_is_required_and_covered():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert ("18:30", "23:00") in friday.lake_required_ranges
+    assert any(
+        assignment.activity == "lake" and assignment.end == "23:00"
+        for assignment in friday.assignments()
+    )
+    assert friday.warnings == []
+
+
+def test_seasonal_sunday_lake_evening_is_required_and_covered():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert ("18:30", "23:00") in sunday.lake_required_ranges
+    assert any(
+        assignment.activity == "lake"
+        and assignment.start <= "18:30"
+        and assignment.end == "23:00"
+        for assignment in sunday.assignments()
+    )
+    assert sunday.warnings == []
+
+
+def test_seasonal_lake_evening_ends_after_september():
+    schedule = generate_weekly_schedule("", week_start_date="2026-10-05")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert friday.lake_required_ranges == [("07:30", "18:30")]
+    assert sunday.lake_required_ranges == [("07:30", "18:30")]
+    assert not any(assignment.end == "23:00" for assignment in friday.assignments())
+    assert not any(assignment.end == "23:00" for assignment in sunday.assignments())
+
+
+def test_missing_lake_evening_coverage_is_critical_conflict():
+    schedule = generate_weekly_schedule(
+        "Venerdì Gianmarco assente. Venerdì Angelo assente. Venerdì Lorenzo assente",
+        week_start_date="2026-06-22",
+    )
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert any(
+        warning == "Copertura mancante evento serale lago dalle 18:30 alle 23:00."
+        for warning in friday.warnings
+    )
+
+
+def test_friday_seasonal_staffing_keeps_angelo_in_shop_and_adds_evening_support():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "shop"
+        and assignment.start == "15:30"
+        and assignment.end == "19:30"
+        for assignment in friday.assignments()
+    )
+    assert any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "lake"
+        and assignment.start == "20:00"
+        and assignment.end == "22:00"
+        for assignment in friday.assignments()
+    )
+    assert not any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "lake"
+        and assignment.start < "19:30"
+        for assignment in friday.assignments()
+    )
+
+
+def test_friday_seasonal_uses_rotating_gianmarco_lorenzo_primary_shifts():
+    week_a = generate_weekly_schedule("", week_start_date="2026-06-22")
+    week_b = generate_weekly_schedule("", week_start_date="2026-06-29")
+
+    friday_a = next(day for day in week_a.days if day.day == "Venerdì")
+    friday_b = next(day for day in week_b.days if day.day == "Venerdì")
+
+    primary_a = [
+        (assignment.person, assignment.start, assignment.end)
+        for assignment in friday_a.assignments()
+        if assignment.activity == "lake"
+        and assignment.person in {"Giammarco Mengozzi", "Lorenzo Sansavini"}
+    ]
+    primary_b = [
+        (assignment.person, assignment.start, assignment.end)
+        for assignment in friday_b.assignments()
+        if assignment.activity == "lake"
+        and assignment.person in {"Giammarco Mengozzi", "Lorenzo Sansavini"}
+    ]
+
+    assert {person for person, _, _ in primary_a} == {
+        "Giammarco Mengozzi",
+        "Lorenzo Sansavini",
+    }
+    assert any(start == "07:30" and end == "21:30" for _, start, end in primary_a)
+    assert any(start == "10:00" and end == "23:00" for _, start, end in primary_a)
+    assert primary_a != primary_b
+
+
+def test_explicit_friday_angelo_evening_support_can_extend_to_2330():
+    schedule = generate_weekly_schedule(
+        "Venerdì Angelo al lago dalle 19:30 alle 23",
+        week_start_date="2026-06-22",
+    )
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "lake"
+        and assignment.start == "19:30"
+        and assignment.end == "23:00"
+        for assignment in friday.assignments()
+    )
+
+
+def test_sunday_seasonal_uses_three_staggered_lake_shifts_and_rotates():
+    week_a = generate_weekly_schedule("", week_start_date="2026-06-22")
+    week_b = generate_weekly_schedule("", week_start_date="2026-06-29")
+    sunday_a = next(day for day in week_a.days if day.day == "Domenica")
+    sunday_b = next(day for day in week_b.days if day.day == "Domenica")
+
+    shifts_a = [
+        (assignment.person, assignment.start, assignment.end)
+        for assignment in sunday_a.assignments()
+        if assignment.activity == "lake"
+    ]
+    shifts_b = [
+        (assignment.person, assignment.start, assignment.end)
+        for assignment in sunday_b.assignments()
+        if assignment.activity == "lake"
+    ]
+
+    assert {person for person, _, _ in shifts_a} == {
+        "Giammarco Mengozzi",
+        "Angelo Antonelli",
+        "Lorenzo Sansavini",
+    }
+    assert {("07:30", "21:00"), ("09:00", "22:00"), ("11:00", "23:00")} == {
+        (start, end) for _, start, end in shifts_a
+    }
+    assert shifts_a != shifts_b
 
 
 def test_parser_supports_date_ranges_and_half_day_absences():

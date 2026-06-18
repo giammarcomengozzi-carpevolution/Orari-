@@ -13,14 +13,18 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .models import WeeklySchedule
+from .generator import lake_opening_label, shop_opening_label
 from .presentation import (
     EffectiveShift,
+    OperationalDayView,
+    OperationalShiftRow,
     critical_conflicts,
     display_person,
     effective_shifts,
     format_duration,
     informational_alerts,
     lorenzo_target_status,
+    operational_day_views,
     weekly_hour_totals,
 )
 from .people import ANGELO, GIAMMARCO, LORENZO
@@ -131,14 +135,14 @@ def _build_pdf_pages(
     conflicts = critical_conflicts(schedule)
     alerts = informational_alerts(schedule)
     totals = weekly_hour_totals(schedule)
-    shifts = effective_shifts(schedule)
+    day_views = operational_day_views(schedule)
 
     pages: list[bytes] = []
-    shift_index = 0
+    day_index = 0
     page_number = 1
     summary_drawn = False
 
-    while shift_index < len(shifts):
+    while day_index < len(day_views):
         commands: list[str] = []
         _draw_header(commands, week_start_date, compact=page_number > 1)
         if page_number > 1:
@@ -155,27 +159,27 @@ def _build_pdf_pages(
         summary_bottom_y = 174.0
         page_bottom_y = 40.0
 
-        end_with_summary = _fit_shift_end(shifts, shift_index, top_y, summary_bottom_y)
-        if end_with_summary == len(shifts):
-            y = _draw_table(
-                commands, shifts[shift_index:end_with_summary], top_y, summary_bottom_y
+        end_with_summary = _fit_day_end(day_views, day_index, top_y, summary_bottom_y)
+        if end_with_summary == len(day_views):
+            y = _draw_day_cards(
+                commands, day_views[day_index:end_with_summary], top_y, summary_bottom_y
             )
             y = _draw_weekly_totals(commands, y - 8, totals)
             _draw_summary_sections(commands, y - 8, notes, conflicts, memories, alerts)
             summary_drawn = True
-            shift_index = end_with_summary
+            day_index = end_with_summary
         else:
-            end = _fit_shift_end(shifts, shift_index, top_y, page_bottom_y)
-            if end == shift_index:
-                end = min(shift_index + 1, len(shifts))
-            _draw_table(commands, shifts[shift_index:end], top_y, page_bottom_y)
-            shift_index = end
+            end = _fit_day_end(day_views, day_index, top_y, page_bottom_y)
+            if end == day_index:
+                end = min(day_index + 1, len(day_views))
+            _draw_day_cards(commands, day_views[day_index:end], top_y, page_bottom_y)
+            day_index = end
 
         _draw_footer(commands, page_number)
         pages.append("\n".join(commands).encode("latin-1", errors="replace"))
         page_number += 1
 
-    if not shifts or not summary_drawn:
+    if not day_views or not summary_drawn:
         commands = []
         _draw_header(commands, week_start_date, compact=bool(pages))
         y = PAGE_HEIGHT - 104
@@ -279,6 +283,133 @@ def _date_for_row(week_start_date: str | None, index: int) -> str:
     except ValueError:
         return "-"
     return (start + timedelta(days=index)).isoformat()
+
+
+def _draw_day_cards(
+    commands: list[str],
+    days: list[OperationalDayView],
+    top_y: float,
+    bottom_y: float,
+) -> float:
+    y = top_y
+    for day in days:
+        height = _day_card_height(day)
+        if y - height < bottom_y:
+            break
+        _draw_day_card(commands, day, y, height)
+        y -= height + 8.0
+    return y
+
+
+def _fit_day_end(
+    days: Sequence[OperationalDayView], start_index: int, top_y: float, bottom_y: float
+) -> int:
+    y = top_y
+    index = start_index
+    while index < len(days):
+        height = _day_card_height(days[index])
+        if y - height < bottom_y:
+            break
+        y -= height + 8.0
+        index += 1
+    return index
+
+
+def _day_card_height(day: OperationalDayView) -> float:
+    row_count = sum(max(1, len(section.rows)) + 1 for section in day.location_sections)
+    return 24.0 + row_count * 10.0 + 10.0
+
+
+def _draw_day_card(
+    commands: list[str], day: OperationalDayView, top_y: float, height: float
+) -> None:
+    bottom_y = top_y - height
+    _draw_filled_rect(
+        commands, MARGIN, bottom_y, TABLE_WIDTH, height, 0.985, 0.990, 0.975
+    )
+    _draw_rect(commands, MARGIN, bottom_y, TABLE_WIDTH, height, stroke_gray=0.55)
+    title = f"{day.day.upper()} {_short_date(day.date)}"
+    _draw_filled_rect(commands, MARGIN, top_y - 22, TABLE_WIDTH, 22, 0.14, 0.25, 0.39)
+    _add_text(commands, MARGIN + 8, top_y - 14, title, 10.0, bold=True, color=(1, 1, 1))
+    _add_text(
+        commands,
+        MARGIN + 150,
+        top_y - 14,
+        f"{lake_opening_label(day.day, day.date)}  |  {shop_opening_label(day.day)}",
+        7.1,
+        color=(0.88, 0.95, 0.90),
+    )
+
+    y = top_y - 34
+    for section in day.location_sections:
+        _add_text(
+            commands,
+            MARGIN + 8,
+            y,
+            section.location,
+            8.2,
+            bold=True,
+            color=(0.05, 0.20, 0.12),
+        )
+        y -= 12
+        if not section.rows:
+            _add_text(
+                commands,
+                MARGIN + 18,
+                y,
+                f"{section.location}: chiuso / nessun turno",
+                7.0,
+            )
+            y -= 10
+            continue
+        _draw_day_row_header(commands, y + 3)
+        y -= 8
+        for row in section.rows:
+            _draw_day_shift_row(commands, row, y)
+            y -= 9
+
+
+def _draw_day_row_header(commands: list[str], y: float) -> None:
+    headers = [
+        ("Persona", 0),
+        ("Timeline / Orario", 170),
+        ("Pausa", 405),
+        ("Compito", 505),
+        ("Ore giorno", 710),
+    ]
+    for label, offset in headers:
+        _add_text(
+            commands,
+            MARGIN + 8 + offset,
+            y,
+            label,
+            6.6,
+            bold=True,
+            color=(0.25, 0.25, 0.25),
+        )
+
+
+def _draw_day_shift_row(
+    commands: list[str], row: OperationalShiftRow, y: float
+) -> None:
+    values = [
+        (display_person(row.person), 0, 155, 7.1),
+        (row.timeline, 170, 220, 7.0),
+        (row.break_time, 405, 85, 6.8),
+        (row.task, 505, 190, 6.8),
+        (format_duration(row.daily_hours), 710, 52, 6.8),
+    ]
+    for text, offset, width, size in values:
+        line = _wrap_cell(text, width, size)[0]
+        _add_text(commands, MARGIN + 8 + offset, y, line, size)
+
+
+def _short_date(value: str) -> str:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return value
+    return parsed.strftime("%d/%m")
 
 
 def _draw_table(

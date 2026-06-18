@@ -281,6 +281,37 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
                 continue
 
         explicit_work_range = _time_range_in_text(lowered)
+        if people and days and _mentions_evening_lake_coverage_context(lowered):
+            evening_start, evening_end = _evening_lake_range_for_text(lowered)
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(
+                        day,
+                        person,
+                        ActivityId.LAKE,
+                        (
+                            explicit_work_range[0]
+                            if explicit_work_range
+                            else evening_start
+                        ),
+                        explicit_work_range[1] if explicit_work_range else evening_end,
+                        "evento serale lago",
+                    )
+                    instruction.forced_lake_coverage.append(request)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_lake_days.add(day)
+            continue
+
+        if days and _mentions_lake_evening_event(lowered):
+            instruction.high_lake_booking_days.update(days)
+            for day in days:
+                _add_day_note(
+                    instruction,
+                    day,
+                    "Evento serale lago: apertura fino alle 23:00",
+                )
+            continue
+
         if (
             people
             and explicit_work_range is not None
@@ -1160,6 +1191,51 @@ def _mentions_high_lake_bookings(lowered_text: str) -> bool:
     return any(word in lowered_text for word in booking_words) and _mentions_lake(
         lowered_text
     )
+
+
+def _mentions_lake_evening_event(lowered_text: str) -> bool:
+    evening_words = (
+        "sera",
+        "serale",
+        "aperitivo",
+        "aperitivi",
+        "cena",
+        "cene",
+        "fino alle 23",
+        "fino a 23",
+        "23:00",
+    )
+    return _mentions_lake(lowered_text) and any(
+        word in lowered_text for word in evening_words
+    )
+
+
+def _mentions_evening_lake_coverage_context(lowered_text: str) -> bool:
+    if _mentions_lake_evening_event(lowered_text):
+        return True
+    if _mentions_shop(lowered_text) or _mentions_external_work(lowered_text):
+        return False
+    return any(
+        word in lowered_text
+        for word in (
+            "sera",
+            "serale",
+            "fino alle 23",
+            "fino a 23",
+            "23:00",
+            "dopo il negozio",
+            "finito il negozio",
+        )
+    )
+
+
+def _evening_lake_range_for_text(lowered_text: str) -> tuple[str, str]:
+    if any(
+        text in lowered_text
+        for text in ("dopo il negozio", "finito il negozio", "dopo negozio")
+    ):
+        return "20:00", "22:00"
+    return "18:30", "23:00"
 
 
 def _mentions_extra_lake_coverage(lowered_text: str) -> bool:

@@ -28,6 +28,48 @@ class EffectiveShift:
     working_hours: float = 0.0
 
 
+@dataclass(frozen=True)
+class OperationalShiftRow:
+    """Riga aggregata per persona/sede/giorno nella vista PDF a card."""
+
+    person: str
+    location: str
+    segments: tuple[tuple[str, str], ...]
+    break_time: str
+    task: str
+    daily_hours: float
+    notes: str = "-"
+
+    @property
+    def work_time(self) -> str:
+        return " / ".join(f"{start}-{end}" for start, end in self.segments)
+
+    @property
+    def timeline(self) -> str:
+        bars = " / ".join(
+            f"{start} {_bar_for_segment(start, end)} {end}"
+            for start, end in self.segments
+        )
+        return f"{self.work_time} | {bars}"
+
+
+@dataclass(frozen=True)
+class LocationSection:
+    """Sezione di una card giornaliera, per Lago o Negozio."""
+
+    location: str
+    rows: tuple[OperationalShiftRow, ...]
+
+
+@dataclass(frozen=True)
+class OperationalDayView:
+    """Vista giornaliera operativa per il PDF calendario."""
+
+    day: str
+    date: str
+    location_sections: tuple[LocationSection, ...]
+
+
 def effective_shifts(schedule: WeeklySchedule) -> list[EffectiveShift]:
     """Converte blocchi interni in turni leggibili persona -> sede -> orario."""
 
@@ -47,6 +89,29 @@ def effective_shifts(schedule: WeeklySchedule) -> list[EffectiveShift]:
             shift.location,
         ),
     )
+
+
+def operational_day_views(schedule: WeeklySchedule) -> list[OperationalDayView]:
+    """Raggruppa i turni per giorno, sede e persona per una lettura calendario."""
+
+    dates = _dates_by_day(schedule.week_start_date)
+    shifts_by_day: dict[str, list[EffectiveShift]] = {day: [] for day in WEEK_DAYS}
+    for shift in effective_shifts(schedule):
+        shifts_by_day.setdefault(shift.day, []).append(shift)
+
+    views: list[OperationalDayView] = []
+    for day in WEEK_DAYS:
+        if day not in {scheduled.day for scheduled in schedule.days}:
+            continue
+        sections: list[LocationSection] = []
+        for location in ("Lago", "Negozio"):
+            rows = _rows_for_location(shifts_by_day.get(day, []), location)
+            sections.append(LocationSection(location.upper(), tuple(rows)))
+        external_rows = _rows_for_location(shifts_by_day.get(day, []), "Lavoro esterno")
+        if external_rows:
+            sections.append(LocationSection("LAVORO ESTERNO", tuple(external_rows)))
+        views.append(OperationalDayView(day, dates.get(day, "-"), tuple(sections)))
+    return views
 
 
 def weekly_hour_totals(schedule: WeeklySchedule) -> dict[str, float]:
@@ -170,6 +235,22 @@ def _lake_shifts(day: DaySchedule, date_label: str) -> list[EffectiveShift]:
     )
     for person, assignments in by_person.items():
         intervals = _merged_intervals(assignments)
+        if any(_to_minutes(end) > _to_minutes("18:30") for _, end in intervals):
+            for start, end in intervals:
+                hours = _lake_hours(start, end)
+                shifts.append(
+                    EffectiveShift(
+                        day.day,
+                        date_label,
+                        person,
+                        "Lago",
+                        f"{start}-{end}",
+                        _lake_break_for_interval(start, end),
+                        _task_for_lake_interval(start, end, hours),
+                        working_hours=hours,
+                    )
+                )
+            continue
         if _covers(intervals, "07:30", "18:30"):
             shifts.append(
                 EffectiveShift(
@@ -293,6 +374,16 @@ def _covers(intervals: list[tuple[str, str]], start: str, end: str) -> bool:
 
 
 def _task_for_lake_interval(start: str, end: str, hours: float) -> str:
+    if end == "23:00":
+        return _long_task("EVENTO SERALE LAGO / CHIUSURA LAGO 23:00", hours)
+    if _to_minutes(start) >= _to_minutes("19:30") and _to_minutes(end) <= _to_minutes(
+        "22:00"
+    ):
+        return _long_task("SUPPORTO SERALE LAGO", hours)
+    if _to_minutes(end) > _to_minutes("18:30") and start == "07:30":
+        return _long_task("APERTURA LAGO / EVENTO SERALE LAGO", hours)
+    if _to_minutes(end) > _to_minutes("18:30"):
+        return _long_task("LAGO / EVENTO SERALE LAGO", hours)
     if start == "07:30" and end == "16:30":
         return _long_task("APERTURA LAGO", hours)
     if start == "09:30" and end == "18:30":
@@ -316,13 +407,25 @@ def _long_task(base: str, hours: float) -> str:
 
 
 def _lake_break_for_interval(start: str, end: str) -> str:
-    if _to_minutes(start) <= _to_minutes("14:00") and _to_minutes(
-        "15:00"
-    ) <= _to_minutes(end):
+    start_minutes = _to_minutes(start)
+    end_minutes = _to_minutes(end)
+    if (
+        start_minutes <= _to_minutes("16:00")
+        and _to_minutes("17:00") <= end_minutes
+        and start_minutes >= _to_minutes("10:00")
+        and end_minutes >= _to_minutes("23:00")
+    ):
+        return "16:00-17:00"
+    if (
+        start_minutes <= _to_minutes("15:00")
+        and _to_minutes("16:00") <= end_minutes
+        and start_minutes >= _to_minutes("09:00")
+        and end_minutes >= _to_minutes("22:00")
+    ):
+        return "15:00-16:00"
+    if start_minutes < _to_minutes("14:00") and _to_minutes("15:00") < end_minutes:
         return "14:00-15:00"
-    if _to_minutes(start) <= _to_minutes("13:30") and _to_minutes(
-        "14:30"
-    ) <= _to_minutes(end):
+    if start_minutes < _to_minutes("13:30") and _to_minutes("14:30") < end_minutes:
         return "13:30-14:30"
     return "-"
 
@@ -359,6 +462,89 @@ def _is_informational_hour_warning(warning: str) -> bool:
 
 def _first_start(work_time: str) -> str:
     return work_time.split("-", 1)[0].strip()
+
+
+def _rows_for_location(
+    shifts: list[EffectiveShift], location: str
+) -> list[OperationalShiftRow]:
+    grouped: dict[tuple[str, str, str], list[EffectiveShift]] = {}
+    for shift in shifts:
+        if shift.location != location:
+            continue
+        note_key = shift.notes if location == "Lavoro esterno" else ""
+        grouped.setdefault((shift.person, shift.location, note_key), []).append(shift)
+
+    rows: list[OperationalShiftRow] = []
+    for (person, shift_location, _), person_shifts in grouped.items():
+        segments = _segments_from_shifts(person_shifts)
+        rows.append(
+            OperationalShiftRow(
+                person=person,
+                location=shift_location,
+                segments=tuple(segments),
+                break_time=_combined_breaks(person_shifts),
+                task=_combined_tasks(person_shifts),
+                daily_hours=sum(shift.working_hours for shift in person_shifts),
+                notes=_combined_notes(person_shifts),
+            )
+        )
+    return sorted(rows, key=lambda row: (_to_minutes(row.segments[0][0]), row.person))
+
+
+def _segments_from_shifts(shifts: list[EffectiveShift]) -> list[tuple[str, str]]:
+    segments: list[tuple[str, str]] = []
+    for shift in shifts:
+        for part in shift.work_time.split("/"):
+            if "-" not in part:
+                continue
+            start, end = [item.strip() for item in part.split("-", 1)]
+            segments.append((start, end))
+    return _merge_label_intervals(segments)
+
+
+def _merge_label_intervals(segments: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    assignments = [
+        Assignment(
+            "", ActivityId.COMPANY_WORK, "", start, end, _hours_between(start, end)
+        )
+        for start, end in segments
+    ]
+    return _merged_intervals(assignments)
+
+
+def _combined_breaks(shifts: list[EffectiveShift]) -> str:
+    breaks = []
+    for shift in shifts:
+        if shift.break_time == "-" or shift.break_time == shift.work_time:
+            continue
+        breaks.extend(
+            part.strip() for part in shift.break_time.split("/") if part.strip() != "-"
+        )
+    return " / ".join(dict.fromkeys(breaks)) or "-"
+
+
+def _combined_tasks(shifts: list[EffectiveShift]) -> str:
+    parts: list[str] = []
+    for shift in shifts:
+        for raw in shift.task.replace(" / ", " + ").split("+"):
+            task = raw.strip()
+            if task and task not in parts:
+                parts.append(task)
+    task = " + ".join(parts) or "-"
+    notes = _combined_notes(shifts)
+    if task == "LAVORO ESTERNO" and notes != "-":
+        return f"{task}: {notes}"
+    return task
+
+
+def _combined_notes(shifts: list[EffectiveShift]) -> str:
+    notes = [shift.notes for shift in shifts if shift.notes and shift.notes != "-"]
+    return " / ".join(dict.fromkeys(notes)) or "-"
+
+
+def _bar_for_segment(start: str, end: str) -> str:
+    hours = max(0.5, _hours_between(start, end))
+    return "━" * max(1, min(10, round(hours)))
 
 
 def _hours_between(start: str, end: str) -> float:

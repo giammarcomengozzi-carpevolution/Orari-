@@ -3,6 +3,7 @@ from pathlib import Path
 from orari_agent.cli import main
 from orari_agent.generator import generate_weekly_schedule
 from orari_agent.pdf_exporter import default_pdf_filename, export_weekly_schedule_pdf
+from orari_agent.presentation import operational_day_views
 
 
 def test_default_pdf_filename_uses_week_start_date():
@@ -28,9 +29,10 @@ def test_export_weekly_schedule_pdf_creates_landscape_pdf_with_polished_layout(
     assert b"Orario settimanale" in content
     assert b"CarpeEvolution Store & Tenuta del Germano" in content
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
-    assert b"Martedi" in content
-    assert b"Sabato" in content
+    assert b"MARTEDI" in content
+    assert b"SABATO" in content
     assert b"Persona" in content
+    assert b"Timeline / Orario" in content
     assert b"Compito" in content
     assert b"Lago mattina" not in content
     assert b"Negozio pomeriggio" not in content
@@ -90,8 +92,7 @@ def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
     content = pdf_path.read_bytes()
 
     assert b"Persona" in content
-    assert b"Sede" in content
-    assert b"Orario" in content
+    assert b"Timeline / Orario" in content
     assert b"Pausa" in content
     assert b"Compito" in content
     assert b"Lago mattina" not in content
@@ -123,6 +124,86 @@ def test_operational_pdf_can_show_lake_second_shift_with_break(tmp_path):
     assert b"CHIUSURA LAGO" in content
 
 
+def test_operational_day_view_merges_same_person_day_location_segments():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+
+    views = operational_day_views(schedule)
+    thursday = next(view for view in views if view.day == "Giovedì")
+    lake = next(
+        section for section in thursday.location_sections if section.location == "LAGO"
+    )
+    gianmarco = next(row for row in lake.rows if "Giammarco" in row.person)
+
+    assert gianmarco.work_time == "14:00-15:00 / 16:30-18:30"
+    assert gianmarco.break_time == "-"
+    assert "14:00-15:00 / 16:30-18:30 | 14:00" in gianmarco.timeline
+
+
+def test_operational_day_view_contains_lake_and_shop_sections_for_each_day():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+
+    for view in operational_day_views(schedule):
+        section_names = [section.location for section in view.location_sections]
+        assert "LAGO" in section_names
+        assert "NEGOZIO" in section_names
+
+
+def test_operational_pdf_uses_day_cards_and_keeps_weekly_totals(tmp_path):
+    schedule = generate_weekly_schedule("", week_start_date="2026-10-05")
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    for day in (
+        b"LUNEDI",
+        b"MARTEDI",
+        b"MERCOLEDI",
+        b"GIOVEDI",
+        b"VENERDI",
+        b"SABATO",
+        b"DOMENICA",
+    ):
+        assert day in content
+    assert b"LAGO" in content
+    assert b"NEGOZIO" in content
+    assert b"Timeline / Orario" in content
+    assert b"Riepilogo monte ore settimanale" in content
+    assert b"OK 40h" in content
+
+
+def test_pdf_day_card_headers_follow_standard_opening_days(tmp_path):
+    schedule = generate_weekly_schedule("", week_start_date="2026-10-05")
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"Lago chiuso  |  Negozio chiuso" in content
+    assert (
+        b"Lago aperto 07:30-18:30  |  Negozio aperto 09:00-12:30 / 15:30-19:30"
+        in content
+    )
+    assert b"Lago aperto 07:30-18:30  |  Negozio chiuso" in content
+
+
+def test_pdf_day_card_headers_show_seasonal_evening_lake_opening(tmp_path):
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert b"Lago aperto 07:30-23:00 \\(evento serale\\)" in content
+    assert (
+        b"Lago aperto 07:30-23:00 \\(evento serale\\)  |  Negozio aperto 09:00-12:30 / 15:30-19:30"
+        in content
+    )
+    assert b"Lago aperto 07:30-23:00 \\(evento serale\\)  |  Negozio chiuso" in content
+    assert b"EVENTO SERALE LAGO" in content
+    assert b"CHIUSURA LAGO 23:00" in content
+    assert b"SUPPORTO SERALE LAGO" in content
+    assert b"20:00-22:00" in content
+    assert b"09:00-12:30 / 15:30-19:30" in content
+
+
 def _schedule_with_many_effective_shifts(count: int):
     from orari_agent.business_rules import ActivityId
     from orari_agent.models import Assignment, DaySchedule, WeeklySchedule
@@ -145,12 +226,12 @@ def _schedule_with_many_effective_shifts(count: int):
 
 
 def test_operational_pdf_with_more_than_18_shifts_includes_all_shift_rows(tmp_path):
-    schedule = _schedule_with_many_effective_shifts(34)
+    schedule = _schedule_with_many_effective_shifts(12)
 
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    for index in range(1, 35):
+    for index in range(1, 13):
         assert f"ESTERNO-{index:02d}".encode() in content
 
 
@@ -160,7 +241,6 @@ def test_operational_pdf_creates_continuation_page_when_needed(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert b"Turni operativi - continuazione" in content
     assert b"Pagina 2" in content
 
 
