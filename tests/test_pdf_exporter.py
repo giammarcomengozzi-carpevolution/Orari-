@@ -204,6 +204,75 @@ def test_pdf_day_card_headers_show_seasonal_evening_lake_opening(tmp_path):
     assert b"09:00-12:30 / 15:30-19:30" in content
 
 
+def test_seasonal_lake_presentation_keeps_real_long_shift_times_and_breaks():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    views = {view.day: view for view in operational_day_views(schedule)}
+
+    friday_lake = next(
+        section
+        for section in views["Venerdì"].location_sections
+        if section.location == "LAGO"
+    )
+    friday_rows = {(row.person, row.work_time): row for row in friday_lake.rows}
+
+    assert any(work_time == "07:30-21:30" for _, work_time in friday_rows)
+    assert any(work_time == "10:00-23:00" for _, work_time in friday_rows)
+    assert all(row.work_time != "09:30-18:30" for row in friday_lake.rows)
+    assert (
+        next(
+            row for row in friday_lake.rows if row.work_time == "07:30-21:30"
+        ).break_time
+        == "14:00-15:00"
+    )
+    assert (
+        next(
+            row for row in friday_lake.rows if row.work_time == "10:00-23:00"
+        ).break_time
+        == "16:00-17:00"
+    )
+
+
+def test_friday_seasonal_presentation_includes_angelo_shop_and_evening_lake_support():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(
+        view for view in operational_day_views(schedule) if view.day == "Venerdì"
+    )
+
+    shop = next(
+        section for section in friday.location_sections if section.location == "NEGOZIO"
+    )
+    lake = next(
+        section for section in friday.location_sections if section.location == "LAGO"
+    )
+
+    assert any(
+        row.person == "Angelo Antonelli"
+        and row.work_time == "09:00-12:30 / 15:30-19:30"
+        for row in shop.rows
+    )
+    assert any(
+        row.person == "Angelo Antonelli" and row.work_time == "20:00-22:00"
+        for row in lake.rows
+    )
+
+
+def test_sunday_seasonal_presentation_includes_all_staggered_long_lake_shifts():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    sunday = next(
+        view for view in operational_day_views(schedule) if view.day == "Domenica"
+    )
+    lake = next(
+        section for section in sunday.location_sections if section.location == "LAGO"
+    )
+
+    assert {row.work_time for row in lake.rows} == {
+        "07:30-21:00",
+        "09:00-22:00",
+        "11:00-23:00",
+    }
+    assert all("18:30" not in row.work_time for row in lake.rows)
+
+
 def _schedule_with_many_effective_shifts(count: int):
     from orari_agent.business_rules import ActivityId
     from orari_agent.models import Assignment, DaySchedule, WeeklySchedule
