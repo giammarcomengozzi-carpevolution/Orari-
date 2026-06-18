@@ -175,7 +175,7 @@ def test_ai_parsed_note_triggers_add_weekly_note(tmp_path):
         123, "Giovedì sono dal commercialista dalle 10 alle 12"
     )
 
-    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
     assert len(saved) == 1
     assert "Giovedì Gianmarco" in saved[0].raw_text
     assert "Nota salvata" in result.user_message
@@ -228,7 +228,7 @@ def test_ai_generation_request_triggers_generate_schedule(tmp_path):
 
     result = agent.handle_message(123, "Generami l'orario della prossima settimana")
 
-    assert schedule_service.calls == [("2026-06-15", "2026-06-21")]
+    assert schedule_service.calls == [("2026-06-22", "2026-06-28")]
     assert result.tool_results[0].generated_schedule is not None
     assert "Conflitti critici" in result.user_message
 
@@ -262,7 +262,7 @@ def test_destructive_action_requires_confirmation(tmp_path):
 
     assert "Confermi" in result.user_message
     assert repo.get_pending_action(123) is not None
-    assert len(notes.active_for_week("2026-06-15", "2026-06-21")) == 1
+    assert len(notes.active_for_week("2026-06-22", "2026-06-28")) == 1
 
 
 def test_confirmation_executes_pending_action(tmp_path):
@@ -292,7 +292,7 @@ def test_confirmation_executes_pending_action(tmp_path):
 
     assert "Confermi" in first.user_message
     assert "Azione confermata" in second.user_message
-    assert notes.active_for_week("2026-06-15", "2026-06-21") == []
+    assert notes.active_for_week("2026-06-22", "2026-06-28") == []
 
 
 def test_invalid_ai_json_does_not_execute_actions(tmp_path):
@@ -301,7 +301,7 @@ def test_invalid_ai_json_does_not_execute_actions(tmp_path):
     result = agent.handle_message(123, "Angelo venerdì mattina non c'è")
 
     assert result.invalid_json is True
-    assert notes.active_for_week("2026-06-15", "2026-06-21") == []
+    assert notes.active_for_week("2026-06-22", "2026-06-28") == []
     assert "nessuna azione" in result.user_message.lower()
 
 
@@ -353,7 +353,7 @@ def test_first_person_weekly_note_maps_to_gianmarco(tmp_path):
 
     agent.handle_message(123, "sono dal commercialista giovedì dalle 10 alle 12")
 
-    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
     assert len(saved) == 1
     assert saved[0].person == "Giammarco Mengozzi"
     assert saved[0].constraint_type == "impegno_esterno"
@@ -394,7 +394,7 @@ def test_ai_multi_person_message_saves_separate_constraints(tmp_path):
         "giovedì sono dal commercialista e sabato Lorenzo esce alle 15",
     )
 
-    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
     assert len(saved) == 2
     assert [note.person for note in saved] == [
         "Giammarco Mengozzi",
@@ -429,7 +429,7 @@ def test_ai_reply_summary_does_not_assign_first_person_commitment_to_lorenzo(tmp
         "sono dal commercialista giovedì dalle 10 alle 12",
     )
 
-    saved = notes.active_for_week("2026-06-15", "2026-06-21")
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
     assert len(saved) == 1
     assert saved[0].person == "Giammarco Mengozzi"
     assert "Lorenzo sarà dal commercialista" not in result.user_message

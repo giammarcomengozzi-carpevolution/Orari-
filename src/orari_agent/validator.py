@@ -29,13 +29,14 @@ def _validate_coverage(day: DaySchedule) -> None:
     if lake_ranges is None and day.day in TENUTA_DEL_GERMANO.open_days:
         lake_ranges = [("07:30", "18:30")]
     for start, end in lake_ranges or []:
+        label = "evento serale lago" if start <= "18:30" and end >= "23:00" else "lago"
         _validate_activity_coverage(
             day,
             ActivityId.LAKE,
             _assignments_for_activity(day, ActivityId.LAKE),
             start,
             end,
-            "lago",
+            label,
         )
 
     shop_ranges = day.shop_required_ranges

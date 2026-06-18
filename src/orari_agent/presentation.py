@@ -358,6 +358,8 @@ def _covers(intervals: list[tuple[str, str]], start: str, end: str) -> bool:
 
 
 def _task_for_lake_interval(start: str, end: str, hours: float) -> str:
+    if end == "23:00":
+        return _long_task("EVENTO SERALE LAGO / CHIUSURA LAGO 23:00", hours)
     if start == "07:30" and end == "16:30":
         return _long_task("APERTURA LAGO", hours)
     if start == "09:30" and end == "18:30":

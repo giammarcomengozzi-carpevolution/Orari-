@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .models import WeeklySchedule
+from .generator import lake_opening_label, shop_opening_label
 from .presentation import (
     EffectiveShift,
     OperationalDayView,
@@ -334,7 +335,7 @@ def _draw_day_card(
         commands,
         MARGIN + 150,
         top_y - 14,
-        "Lago aperto 07:30-18:30  |  Negozio aperto 09:00-12:30 / 15:30-19:30",
+        f"{lake_opening_label(day.day, day.date)}  |  {shop_opening_label(day.day)}",
         7.1,
         color=(0.88, 0.95, 0.90),
     )

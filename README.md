@@ -116,9 +116,21 @@ La **pagina 1** contiene le card giornaliere finché lo spazio resta leggibile. 
 
 I conflitti critici restano separati dagli alert informativi. Sono conflitti critici, ad esempio, coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in una data con codice moglie `M`, o assegnazioni su giorni chiusi senza apertura esplicita. Sono invece alert informativi gli scostamenti di Lorenzo dal target 40 ore o i turni lunghi.
 
+### Apertura serale stagionale lago 2026
+
+Dal **22 giugno 2026** al **30 settembre 2026** compresi, la Tenuta del Germano resta aperta fino alle **23:00** ogni:
+
+- **venerdì**;
+- **domenica**.
+
+Questa è una regola operativa reale per aperitivi, cene ed eventi serali: il motore aggiunge copertura lago obbligatoria `18:30-23:00` e il PDF mostra l’intestazione `Lago aperto 07:30-23:00 (evento serale)`.
+
+Se non ci sono istruzioni specifiche, la copertura serale viene assegnata in ordine preferenziale a Gianmarco, poi Angelo, poi Lorenzo. Se nessuno è disponibile, il PDF viene comunque generato e compare un conflitto critico: `Copertura mancante evento serale lago dalle 18:30 alle 23:00.` La copertura serale conta nel monte ore settimanale come lavoro reale.
+
 Etichette semplici usate nella colonna `Compito`:
 
 - `APERTURA LAGO`, `CHIUSURA LAGO`, `LAGO`;
+- `EVENTO SERALE LAGO`, `CHIUSURA LAGO 23:00`;
 - `APERTURA NEGOZIO`, `CHIUSURA NEGOZIO`, `NEGOZIO`;
 - `LAVORO ESTERNO`;
 - `TURNO LUNGO` quando un turno effettivo supera le 8 ore.

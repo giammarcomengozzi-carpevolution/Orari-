@@ -80,6 +80,41 @@ def test_parser_supports_absence_and_giammarco_lake_instruction():
     assert instruction.giammarco_lake_days == {"Venerdì"}
 
 
+def test_parser_understands_evening_lake_event_context():
+    instruction = parse_weekly_instruction("Venerdì sera evento al lago")
+
+    assert instruction.high_lake_booking_days == {"Venerdì"}
+    assert instruction.day_notes["Venerdì"] == [
+        "Evento serale lago: apertura fino alle 23:00"
+    ]
+
+
+def test_parser_understands_sunday_evening_aperitivo_until_23():
+    instruction = parse_weekly_instruction(
+        "Domenica sera aperitivo al lago fino alle 23"
+    )
+
+    assert instruction.high_lake_booking_days == {"Domenica"}
+    assert instruction.day_notes["Domenica"] == [
+        "Evento serale lago: apertura fino alle 23:00"
+    ]
+
+
+def test_parser_saves_specific_evening_lake_assignment():
+    instruction = parse_weekly_instruction(
+        "Settimana prossima per la domenica sera metti Gianmarco al lago"
+    )
+
+    assert any(
+        request.day == "Domenica"
+        and request.person == GIAMMARCO
+        and request.activity == "lake"
+        and request.start == "18:30"
+        and request.end == "23:00"
+        for request in instruction.forced_lake_coverage
+    )
+
+
 def test_giammarco_shop_instruction_rebalances_lake_closing_with_angelo():
     schedule = generate_weekly_schedule(
         "Giovedì Giammarco deve stare in negozio per fatture"
@@ -236,6 +271,60 @@ def test_missing_future_wife_calendar_month_is_unrestricted():
         and assignment.activity == "lake"
         and assignment.start == "07:30"
         for assignment in sunday.assignments()
+    )
+
+
+def test_seasonal_friday_lake_evening_is_required_and_covered():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert ("18:30", "23:00") in friday.lake_required_ranges
+    assert any(
+        assignment.activity == "lake" and assignment.start == "18:30"
+        for assignment in friday.assignments()
+    )
+    assert any(
+        assignment.activity == "lake" and assignment.end == "23:00"
+        for assignment in friday.assignments()
+    )
+    assert friday.warnings == []
+
+
+def test_seasonal_sunday_lake_evening_is_required_and_covered():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert ("18:30", "23:00") in sunday.lake_required_ranges
+    assert any(
+        assignment.activity == "lake"
+        and assignment.start <= "18:30"
+        and assignment.end == "23:00"
+        for assignment in sunday.assignments()
+    )
+    assert sunday.warnings == []
+
+
+def test_seasonal_lake_evening_ends_after_september():
+    schedule = generate_weekly_schedule("", week_start_date="2026-10-05")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+    sunday = next(day for day in schedule.days if day.day == "Domenica")
+
+    assert friday.lake_required_ranges == [("07:30", "18:30")]
+    assert sunday.lake_required_ranges == [("07:30", "18:30")]
+    assert not any(assignment.end == "23:00" for assignment in friday.assignments())
+    assert not any(assignment.end == "23:00" for assignment in sunday.assignments())
+
+
+def test_missing_lake_evening_coverage_is_critical_conflict():
+    schedule = generate_weekly_schedule(
+        "Venerdì Gianmarco assente. Venerdì Angelo assente. Venerdì Lorenzo assente",
+        week_start_date="2026-06-22",
+    )
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert any(
+        warning == "Copertura mancante evento serale lago dalle 18:30 alle 23:00."
+        for warning in friday.warnings
     )
 
 

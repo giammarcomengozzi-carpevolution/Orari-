@@ -281,6 +281,32 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
                 continue
 
         explicit_work_range = _time_range_in_text(lowered)
+        if people and days and _mentions_evening_lake_coverage_context(lowered):
+            for person in people:
+                for day in days:
+                    request = CoverageRequest(
+                        day,
+                        person,
+                        ActivityId.LAKE,
+                        "18:30",
+                        "23:00",
+                        "evento serale lago",
+                    )
+                    instruction.forced_lake_coverage.append(request)
+                    if person == GIAMMARCO.full_name:
+                        instruction.giammarco_lake_days.add(day)
+            continue
+
+        if days and _mentions_lake_evening_event(lowered):
+            instruction.high_lake_booking_days.update(days)
+            for day in days:
+                _add_day_note(
+                    instruction,
+                    day,
+                    "Evento serale lago: apertura fino alle 23:00",
+                )
+            continue
+
         if (
             people
             and explicit_work_range is not None
@@ -1159,6 +1185,34 @@ def _mentions_high_lake_bookings(lowered_text: str) -> bool:
     )
     return any(word in lowered_text for word in booking_words) and _mentions_lake(
         lowered_text
+    )
+
+
+def _mentions_lake_evening_event(lowered_text: str) -> bool:
+    evening_words = (
+        "sera",
+        "serale",
+        "aperitivo",
+        "aperitivi",
+        "cena",
+        "cene",
+        "fino alle 23",
+        "fino a 23",
+        "23:00",
+    )
+    return _mentions_lake(lowered_text) and any(
+        word in lowered_text for word in evening_words
+    )
+
+
+def _mentions_evening_lake_coverage_context(lowered_text: str) -> bool:
+    if _mentions_lake_evening_event(lowered_text):
+        return True
+    if _mentions_shop(lowered_text) or _mentions_external_work(lowered_text):
+        return False
+    return any(
+        word in lowered_text
+        for word in ("sera", "serale", "fino alle 23", "fino a 23", "23:00")
     )
 
 
