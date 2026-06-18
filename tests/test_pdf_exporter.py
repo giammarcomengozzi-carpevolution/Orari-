@@ -13,7 +13,7 @@ def test_default_pdf_filename_uses_week_start_date():
     )
 
 
-def test_export_weekly_schedule_pdf_creates_landscape_pdf_with_polished_layout(
+def test_export_weekly_schedule_pdf_creates_portrait_pdf_with_compact_layout(
     tmp_path,
 ):
     schedule = generate_weekly_schedule(
@@ -25,19 +25,47 @@ def test_export_weekly_schedule_pdf_creates_landscape_pdf_with_polished_layout(
     assert pdf_path == tmp_path / "Orario_CarpeEvolution_Tenuta_2026-06-08.pdf"
     content = pdf_path.read_bytes()
     assert content.startswith(b"%PDF-1.4")
-    assert b"/MediaBox [0 0 841.89 595.28]" in content
+    assert b"/MediaBox [0 0 595.28 841.89]" in content
     assert b"Orario settimanale" in content
     assert b"CarpeEvolution Store & Tenuta del Germano" in content
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
     assert b"MARTEDI" in content
     assert b"SABATO" in content
     assert b"Persona" in content
-    assert b"Timeline / Orario" in content
+    assert b"Orario" in content
     assert b"Compito" in content
     assert b"Lago mattina" not in content
     assert b"Negozio pomeriggio" not in content
-    assert b"Conflitti critici / alert" in content
+    assert b"CONFLITTI CRITICI" in content
     assert b"ATTENZIONE" in content
+
+
+def test_standard_weekly_pdf_fits_one_portrait_page_with_bottom_sections(tmp_path):
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert content.count(b"/Type /Page /Parent") == 1
+    assert b"/MediaBox [0 0 595.28 841.89]" in content
+    assert b"RIEPILOGO MONTE ORE" in content
+    assert b"NOTE / ALERT" in content
+    assert b"CONFLITTI CRITICI" in content
+
+
+def test_pdf_uses_text_only_times_without_unicode_timeline_bars_or_question_marks(
+    tmp_path,
+):
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+
+    pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
+    content = pdf_path.read_bytes()
+
+    assert "━".encode("utf-8") not in content
+    assert "─".encode("utf-8") not in content
+    assert b"?????" not in content
+    assert b"07:30-21:30" in content
+    assert b"09:00-12:30 / 15:30-19:30" in content
 
 
 def test_export_weekly_schedule_pdf_includes_no_conflict_message(tmp_path):
@@ -57,7 +85,7 @@ def test_export_weekly_schedule_pdf_does_not_crash_with_many_notes(tmp_path):
 
     content = pdf_path.read_bytes()
     assert pdf_path.exists()
-    assert b"Note operative" in content
+    assert b"NOTE / ALERT" in content
     assert b"Pagina 2" in content
 
 
@@ -92,7 +120,7 @@ def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
     content = pdf_path.read_bytes()
 
     assert b"Persona" in content
-    assert b"Timeline / Orario" in content
+    assert b"Orario" in content
     assert b"Pausa" in content
     assert b"Compito" in content
     assert b"Lago mattina" not in content
@@ -107,7 +135,7 @@ def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
     assert b"09:00-12:30 / 15:30-19:30" in content
     assert b"12:30-15:30" in content
     assert b"NEGOZIO" in content
-    assert b"Riepilogo monte ore settimanale" in content
+    assert b"RIEPILOGO MONTE ORE" in content
     assert b"Lorenzo Sansavini" in content
 
 
@@ -166,8 +194,8 @@ def test_operational_pdf_uses_day_cards_and_keeps_weekly_totals(tmp_path):
         assert day in content
     assert b"LAGO" in content
     assert b"NEGOZIO" in content
-    assert b"Timeline / Orario" in content
-    assert b"Riepilogo monte ore settimanale" in content
+    assert b"Orario" in content
+    assert b"RIEPILOGO MONTE ORE" in content
     assert b"OK 40h" in content
 
 
@@ -310,7 +338,7 @@ def test_operational_pdf_creates_continuation_page_when_needed(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert b"Pagina 2" in content
+    assert b"Pagina 1" in content
 
 
 def test_operational_pdf_does_not_claim_unprinted_detail_shifts(tmp_path):

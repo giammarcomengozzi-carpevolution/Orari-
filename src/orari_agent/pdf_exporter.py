@@ -1,7 +1,7 @@
 """Esportazione PDF dell'orario settimanale.
 
 Il modulo resta separato dal motore di scheduling: riceve un ``WeeklySchedule``
-già generato e produce un PDF A4 orizzontale pronto per la condivisione manuale.
+già generato e produce un PDF A4 verticale pronto per la condivisione manuale.
 """
 
 from __future__ import annotations
@@ -33,10 +33,10 @@ PDF_TITLE = "Orario settimanale"
 PDF_SUBTITLE = "CarpeEvolution Store & Tenuta del Germano"
 DEFAULT_FILENAME_PREFIX = "Orario_CarpeEvolution_Tenuta"
 
-# A4 landscape in PostScript points.
-PAGE_WIDTH = 841.89
-PAGE_HEIGHT = 595.28
-MARGIN = 28.0
+# A4 portrait in PostScript points.
+PAGE_WIDTH = 595.28
+PAGE_HEIGHT = 841.89
+MARGIN = 18.0
 TABLE_WIDTH = PAGE_WIDTH - (MARGIN * 2)
 
 COLUMN_SPECS = [
@@ -155,9 +155,9 @@ def _build_pdf_pages(
                 bold=True,
                 color=(0.05, 0.20, 0.12),
             )
-        top_y = PAGE_HEIGHT - (104 if page_number == 1 else 112)
-        summary_bottom_y = 174.0
-        page_bottom_y = 40.0
+        top_y = PAGE_HEIGHT - (70 if page_number == 1 else 76)
+        summary_bottom_y = 154.0
+        page_bottom_y = 34.0
 
         end_with_summary = _fit_day_end(day_views, day_index, top_y, summary_bottom_y)
         if end_with_summary == len(day_views):
@@ -182,7 +182,7 @@ def _build_pdf_pages(
     if not day_views or not summary_drawn:
         commands = []
         _draw_header(commands, week_start_date, compact=bool(pages))
-        y = PAGE_HEIGHT - 104
+        y = PAGE_HEIGHT - 70
         y = _draw_weekly_totals(commands, y, totals)
         _draw_summary_sections(commands, y - 8, notes, conflicts, memories, alerts)
         _draw_footer(commands, page_number)
@@ -201,23 +201,24 @@ def _build_pdf_pages(
 def _draw_header(
     commands: list[str], week_start_date: str | None, *, compact: bool = False
 ) -> None:
-    top = PAGE_HEIGHT - 31
-    _draw_filled_rect(commands, 0, PAGE_HEIGHT - 74, PAGE_WIDTH, 74, 0.05, 0.20, 0.12)
+    top = PAGE_HEIGHT - 22
+    header_height = 48 if not compact else 42
+    _draw_filled_rect(commands, 0, PAGE_HEIGHT - header_height, PAGE_WIDTH, header_height, 0.05, 0.20, 0.12)
     _add_text(
         commands,
         MARGIN,
         top,
         PDF_TITLE,
-        18 if not compact else 15,
+        13 if not compact else 11,
         bold=True,
         color=(1, 1, 1),
     )
     _add_text(
         commands,
         MARGIN,
-        top - 20,
+        top - 14,
         PDF_SUBTITLE,
-        10,
+        7.8,
         bold=True,
         color=(0.88, 0.95, 0.90),
     )
@@ -225,10 +226,10 @@ def _draw_header(
     if week:
         _add_text(
             commands,
-            PAGE_WIDTH - MARGIN - 210,
-            top - 10,
+            MARGIN,
+            top - 28,
             week,
-            9.5,
+            7.6,
             bold=True,
             color=(1, 1, 1),
         )
@@ -236,10 +237,8 @@ def _draw_header(
 
 def _draw_footer(commands: list[str], page_number: int) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    footer = (
-        f"Generato il {timestamp} - pronto per WhatsApp/Telegram - Pagina {page_number}"
-    )
-    _add_text(commands, MARGIN, 20, footer, 7, color=(0.25, 0.25, 0.25))
+    footer = f"Generato il {timestamp} - Pagina {page_number}"
+    _add_text(commands, MARGIN, 16, footer, 6.2, color=(0.25, 0.25, 0.25))
 
 
 def _collect_warning_texts(schedule: WeeklySchedule) -> list[str]:
@@ -316,74 +315,70 @@ def _fit_day_end(
 
 
 def _day_card_height(day: OperationalDayView) -> float:
-    row_count = sum(max(1, len(section.rows)) + 1 for section in day.location_sections)
-    return 24.0 + row_count * 10.0 + 10.0
+    if not any(section.rows for section in day.location_sections):
+        return 20.0
+    row_count = sum(len(section.rows) for section in day.location_sections)
+    visible_sections = sum(1 for section in day.location_sections if section.rows)
+    return 17.0 + visible_sections * 13.0 + row_count * 8.2 + 4.0
 
 
 def _draw_day_card(
     commands: list[str], day: OperationalDayView, top_y: float, height: float
 ) -> None:
     bottom_y = top_y - height
-    _draw_filled_rect(
-        commands, MARGIN, bottom_y, TABLE_WIDTH, height, 0.985, 0.990, 0.975
-    )
-    _draw_rect(commands, MARGIN, bottom_y, TABLE_WIDTH, height, stroke_gray=0.55)
     title = f"{day.day.upper()} {_short_date(day.date)}"
-    _draw_filled_rect(commands, MARGIN, top_y - 22, TABLE_WIDTH, 22, 0.14, 0.25, 0.39)
-    _add_text(commands, MARGIN + 8, top_y - 14, title, 10.0, bold=True, color=(1, 1, 1))
+    _draw_filled_rect(commands, MARGIN, top_y - 15, TABLE_WIDTH, 15, 0.14, 0.25, 0.39)
+    _add_text(commands, MARGIN + 5, top_y - 10, title, 7.8, bold=True, color=(1, 1, 1))
     _add_text(
         commands,
-        MARGIN + 150,
-        top_y - 14,
+        MARGIN + 98,
+        top_y - 10,
         f"{lake_opening_label(day.day, day.date)}  |  {shop_opening_label(day.day)}",
-        7.1,
+        6.0,
         color=(0.88, 0.95, 0.90),
     )
 
-    y = top_y - 34
+    if not any(section.rows for section in day.location_sections):
+        _add_text(commands, MARGIN + 5, top_y - 25, "Lago chiuso | Negozio chiuso", 6.8)
+        return
+
+    _draw_rect(commands, MARGIN, bottom_y, TABLE_WIDTH, height, stroke_gray=0.70)
+    y = top_y - 25
     for section in day.location_sections:
+        if not section.rows:
+            continue
         _add_text(
             commands,
-            MARGIN + 8,
+            MARGIN + 5,
             y,
             section.location,
-            8.2,
+            6.9,
             bold=True,
             color=(0.05, 0.20, 0.12),
         )
-        y -= 12
-        if not section.rows:
-            _add_text(
-                commands,
-                MARGIN + 18,
-                y,
-                f"{section.location}: chiuso / nessun turno",
-                7.0,
-            )
-            y -= 10
-            continue
-        _draw_day_row_header(commands, y + 3)
-        y -= 8
+        _draw_day_row_header(commands, y)
+        y -= 8.0
         for row in section.rows:
             _draw_day_shift_row(commands, row, y)
-            y -= 9
+            y -= 8.2
+        y -= 3.0
 
 
 def _draw_day_row_header(commands: list[str], y: float) -> None:
     headers = [
         ("Persona", 0),
-        ("Timeline / Orario", 170),
-        ("Pausa", 405),
-        ("Compito", 505),
-        ("Ore giorno", 710),
+        ("Orario", 132),
+        ("Pausa", 286),
+        ("Compito", 372),
+        ("Ore", 520),
     ]
     for label, offset in headers:
         _add_text(
             commands,
-            MARGIN + 8 + offset,
+            MARGIN + 5 + offset,
             y,
             label,
-            6.6,
+            5.7,
             bold=True,
             color=(0.25, 0.25, 0.25),
         )
@@ -393,15 +388,15 @@ def _draw_day_shift_row(
     commands: list[str], row: OperationalShiftRow, y: float
 ) -> None:
     values = [
-        (display_person(row.person), 0, 155, 7.1),
-        (row.timeline, 170, 220, 7.0),
-        (row.break_time, 405, 85, 6.8),
-        (row.task, 505, 190, 6.8),
-        (format_duration(row.daily_hours), 710, 52, 6.8),
+        (display_person(row.person), 0, 124, 6.4),
+        (row.work_time, 132, 145, 6.3),
+        (row.break_time, 286, 78, 6.1),
+        (row.task, 372, 140, 6.1),
+        (format_duration(row.daily_hours), 520, 34, 6.0),
     ]
     for text, offset, width, size in values:
         line = _wrap_cell(text, width, size)[0]
-        _add_text(commands, MARGIN + 8 + offset, y, line, size)
+        _add_text(commands, MARGIN + 5 + offset, y, line, size)
 
 
 def _short_date(value: str) -> str:
@@ -535,7 +530,7 @@ def _wrap_cell(text: str, width: float, font_size: float) -> list[str]:
 def _draw_weekly_totals(
     commands: list[str], top_y: float, totals: dict[str, float]
 ) -> float:
-    height = 52.0
+    height = 45.0
     y = max(34.0, top_y - height)
     _draw_filled_rect(commands, MARGIN, y, TABLE_WIDTH, height, 0.94, 0.97, 0.94)
     _draw_rect(commands, MARGIN, y, TABLE_WIDTH, height, stroke_gray=0.65)
@@ -543,8 +538,8 @@ def _draw_weekly_totals(
         commands,
         MARGIN + 6,
         top_y - 12,
-        "Riepilogo monte ore settimanale",
-        8.0,
+        "RIEPILOGO MONTE ORE",
+        7.3,
         bold=True,
         color=(0.05, 0.20, 0.12),
     )
@@ -560,10 +555,10 @@ def _draw_weekly_totals(
             commands,
             x,
             y_text,
-            f"{display_person(person)} | {format_duration(total)} | {status}",
-            7.0,
+            f"{display_person(person)}   {format_duration(total)}   {status}",
+            6.4,
         )
-        y_text -= 9.0
+        y_text -= 8.0
     return y
 
 
@@ -575,9 +570,9 @@ def _draw_summary_sections(
     memories: Sequence[str],
     alerts: Sequence[str] | None = None,
 ) -> float:
-    box_gap = 7.0
-    box_width = (TABLE_WIDTH - (box_gap * 2)) / 3
-    height = max(54.0, min(78.0, top_y - 36.0))
+    box_gap = 8.0
+    box_width = (TABLE_WIDTH - box_gap) / 2
+    height = max(48.0, min(64.0, top_y - 31.0))
     y = max(34.0, top_y - height)
     alert_lines = list(alerts or [])
     conflict_lines = (
@@ -587,36 +582,33 @@ def _draw_summary_sections(
     )
     if alert_lines:
         conflict_lines.extend(["Alert informativi", *alert_lines])
+    note_lines = list(notes or ["Nessuna nota operativa specifica."])
+    if memories:
+        note_lines.extend([f"Memoria: {memory}" for memory in memories])
     summaries = [
         (
-            "Note operative",
-            notes or ["Nessuna nota operativa specifica."],
+            "NOTE / ALERT",
+            note_lines,
             (0.94, 0.97, 0.94),
             (0.05, 0.20, 0.12),
         ),
         (
-            "Conflitti critici / alert",
+            "CONFLITTI CRITICI",
             conflict_lines,
             (1.0, 0.94, 0.84) if warnings else (0.94, 0.97, 0.94),
             (0.70, 0.18, 0.02) if warnings else (0.05, 0.20, 0.12),
-        ),
-        (
-            "Memorie operative applicate",
-            memories or ["Nessuna memoria operativa applicata."],
-            (0.94, 0.97, 0.94),
-            (0.05, 0.20, 0.12),
         ),
     ]
     for index, (title, items, fill, title_color) in enumerate(summaries):
         x = MARGIN + index * (box_width + box_gap)
         _draw_filled_rect(commands, x, y, box_width, height, *fill)
         _draw_rect(commands, x, y, box_width, height, stroke_gray=0.65)
-        _add_text(commands, x + 6, top_y - 12, title, 7.6, bold=True, color=title_color)
+        _add_text(commands, x + 5, top_y - 11, title, 7.0, bold=True, color=title_color)
         text_y = top_y - 23
         preview_lines = _section_preview_lines(items, box_width)
-        for line in preview_lines[:5]:
-            _add_text(commands, x + 6, text_y, line, 6.6, color=(0.10, 0.10, 0.10))
-            text_y -= 8.0
+        for line in preview_lines[:4]:
+            _add_text(commands, x + 5, text_y, "- " + line, 6.0, color=(0.10, 0.10, 0.10))
+            text_y -= 7.4
     return y
 
 
