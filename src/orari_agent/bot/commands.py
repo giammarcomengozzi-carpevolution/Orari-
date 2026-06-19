@@ -886,12 +886,16 @@ async def _handle_ai_agent_text(
     ]
     await update.effective_message.reply_text(f"{reply_prefix}{result.user_message}")
     for generated in generated_results:
+        warning_text = _warnings_text(generated.warnings)
         with generated.pdf_path.open("rb") as pdf_file:
             await update.effective_message.reply_document(
                 document=pdf_file,
                 filename=generated.pdf_path.name,
-                caption=f"{generated.summary}\n{_warnings_text(generated.warnings)}",
+                caption=_short_document_caption(generated.summary),
             )
+        await _send_long_text_in_chunks(
+            update.effective_message, f"{generated.summary}\n{warning_text}"
+        )
 
 
 def _effective_user_id(update: Update, allowed_user_id: int) -> int:
@@ -990,8 +994,56 @@ async def _generate_and_send(
         await update.effective_message.reply_document(
             document=pdf_file,
             filename=result.pdf_path.name,
-            caption=f"{result.summary}\n{warning_text}",
+            caption=_short_document_caption(result.summary),
         )
+    await _send_long_text_in_chunks(
+        update.effective_message, f"{result.summary}\n{warning_text}"
+    )
+
+
+def _short_document_caption(summary: str) -> str:
+    match = re.search(
+        r"Orario generato per (\d{4}-\d{2}-\d{2}) / (\d{4}-\d{2}-\d{2})",
+        summary,
+    )
+    if match:
+        return f"Orario generato per {match.group(1)} / {match.group(2)}. PDF allegato."
+    return "Orario generato. PDF allegato."
+
+
+async def _send_long_text_in_chunks(message, text: str, max_chars: int = 3500) -> None:
+    clean_text = text.strip()
+    if not clean_text:
+        return
+    for chunk in _split_text_chunks(clean_text, max_chars=max_chars):
+        await message.reply_text(chunk)
+
+
+def _split_text_chunks(text: str, max_chars: int = 3500) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chars deve essere positivo")
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines():
+        pending_lines = [line] if line else [""]
+        while pending_lines:
+            pending_line = pending_lines.pop(0)
+            separator = "\n" if current else ""
+            if len(current) + len(separator) + len(pending_line) <= max_chars:
+                current = f"{current}{separator}{pending_line}"
+                break
+            if current:
+                chunks.append(current)
+                current = ""
+                pending_lines.insert(0, pending_line)
+                continue
+            chunks.append(pending_line[:max_chars])
+            remainder = pending_line[max_chars:]
+            if remainder:
+                pending_lines.insert(0, remainder)
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _warnings_text(warnings: list[str]) -> str:

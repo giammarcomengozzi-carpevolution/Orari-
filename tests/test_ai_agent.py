@@ -434,3 +434,104 @@ def test_ai_reply_summary_does_not_assign_first_person_commitment_to_lorenzo(tmp
     assert saved[0].person == "Giammarco Mengozzi"
     assert "Lorenzo sarà dal commercialista" not in result.user_message
     assert "Gianmarco Mengozzi dal commercialista" in result.user_message
+
+
+def test_pdf_send_uses_short_caption_and_sends_long_details_separately(tmp_path):
+    class LongSummaryScheduleService:
+        def generate_for_week(self, week_start: str, week_end: str):
+            pdf = tmp_path / "orari-lungo.pdf"
+            pdf.write_bytes(b"pdf")
+            return SimpleNamespace(
+                pdf_path=pdf,
+                summary=(
+                    f"Orario generato per {week_start} / {week_end}.\n"
+                    + "Nota molto lunga. " * 400
+                ),
+                warnings=["Conflitto molto lungo " * 250, "Altro avviso" * 250],
+                notes=[],
+                memories=[],
+            )
+
+    update = FakeUpdate("Genera orario settimana prossima")
+
+    asyncio.run(
+        commands._generate_and_send(  # noqa: SLF001
+            update,
+            _context({"allowed_user_id": 123}),
+            "settimana prossima",
+            LongSummaryScheduleService(),
+        )
+    )
+
+    assert len(update.effective_message.documents) == 1
+    document = update.effective_message.documents[0]
+    assert document["caption"] == (
+        "Orario generato per 2026-06-22 / 2026-06-28. PDF allegato."
+    )
+    assert len(document["caption"]) < 1024
+    assert update.effective_message.replies[0].startswith("Genero l'orario")
+    detail_messages = update.effective_message.replies[1:]
+    assert detail_messages
+    assert all(len(message) <= 3500 for message in detail_messages)
+    assert any("Nota molto lunga" in message for message in detail_messages)
+
+
+def test_ai_generated_pdf_caption_omits_long_warnings_but_pdf_is_sent(tmp_path):
+    class LongWarningScheduleService(FakeScheduleService):
+        def generate_for_week(self, week_start: str, week_end: str):
+            result = super().generate_for_week(week_start, week_end)
+            result.summary = f"Orario generato per {week_start} / {week_end}."
+            result.warnings = ["Conflitto critico " * 300]
+            return result
+
+    connection = connect(tmp_path / "orari.sqlite3")
+    schedule_service = LongWarningScheduleService()
+    tools = AiToolExecutor(
+        NotesRepository(connection),
+        OperationalMemoryRepository(connection),
+        schedule_service,  # type: ignore[arg-type]
+        WifeCalendarRepository(connection),
+        tmp_path / "orari.sqlite3",
+        tmp_path,
+        tmp_path / "backups",
+    )
+    agent = AiAgent(
+        FakeResponder(
+            {
+                "user_message": "Genero l'orario richiesto.",
+                "action": "generate",
+                "tool_calls": [
+                    {
+                        "name": "generate_schedule",
+                        "arguments": {"week_request": "settimana prossima"},
+                    }
+                ],
+                "needs_confirmation": False,
+                "confidence": "high",
+            }
+        ),
+        tools,
+        AiConversationRepository(connection),
+    )
+    update = FakeUpdate("Generami l'orario")
+    bot_data = {
+        "allowed_user_id": 123,
+        "notes_repository": NotesRepository(connection),
+        "schedule_service": schedule_service,
+        "wife_calendar_repository": WifeCalendarRepository(connection),
+        "ai_agent": agent,
+    }
+
+    asyncio.run(
+        commands._handle_ai_agent_text(  # noqa: SLF001
+            update, _context(bot_data), update.effective_message.text
+        )
+    )
+
+    assert len(update.effective_message.documents) == 1
+    assert len(update.effective_message.documents[0]["caption"]) < 1024
+    assert "Conflitto" not in update.effective_message.documents[0]["caption"]
+    assert any(
+        "Conflitto critico" in reply for reply in update.effective_message.replies
+    )
+    assert all(len(reply) <= 3500 for reply in update.effective_message.replies[1:])
