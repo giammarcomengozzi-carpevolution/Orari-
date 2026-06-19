@@ -794,3 +794,46 @@ def test_lorenzo_custom_long_shift_text_creates_operational_overtime_row():
         and "TURNO LUNGO" in shift.task
         for shift in effective_shifts(schedule)
     )
+
+
+def test_parser_treats_gianmarco_metro_shopping_as_external_work():
+    instruction = parse_weekly_instruction(
+        "Gianmarco Mengozzi venerdi 09:00-12:00 impegnato a fare la spesa alla Metro"
+    )
+
+    assert instruction.unknown_notes == []
+    assert any(
+        request.day == "Venerdì"
+        and request.start == "09:00"
+        and request.end == "12:00"
+        for request in instruction.giammarco_external_work
+    )
+
+
+def test_friday_seasonal_keeps_angelo_shop_covered_before_lake_support():
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(day for day in schedule.days if day.day == "Venerdì")
+
+    assert friday.warnings == []
+    assert any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "shop"
+        and assignment.start == "09:00"
+        and assignment.end == "12:30"
+        for assignment in friday.assignments()
+    )
+    assert any(
+        assignment.person == "Angelo Antonelli"
+        and assignment.activity == "shop"
+        and assignment.start == "15:30"
+        and assignment.end == "19:30"
+        for assignment in friday.assignments()
+    )
+    assert all(
+        not (
+            assignment.person == "Angelo Antonelli"
+            and assignment.activity == "lake"
+            and assignment.start < "19:30"
+        )
+        for assignment in friday.assignments()
+    )

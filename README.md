@@ -92,6 +92,8 @@ La data nel nome deriva da `week_start` dentro `input/weekly_plan.yaml`.
 
 ## PDF operativo per WhatsApp/Telegram
 
+Il PDF settimanale usa un layout stabile basato su **ReportLab Platypus** (`SimpleDocTemplate`, `Table`, `Paragraph`, `Spacer` e `PageBreak`) invece di un renderer manuale a coordinate assolute. L'output predefinito privilegia la leggibilità rispetto alla compressione in una sola pagina: per una settimana normale il PDF è pensato come documento **A4 verticale di 2 pagine**, con pagina 1 dedicata all'orario e pagina 2 dedicata a riepiloghi, note, conflitti, alert e memorie operative. Se una settimana molto piena non entra nella prima pagina, ReportLab lascia continuare l'orario su una pagina aggiuntiva e sposta il riepilogo alla pagina successiva.
+
 Il PDF settimanale è in formato **A4 verticale** e usa un layout a **card giornaliere**, pensato per sembrare un calendario operativo e non una tabella grezza del database. Ogni card mostra subito il giorno, la data e due sezioni principali: **LAGO** e **NEGOZIO**. Se necessario può comparire anche una sezione compatta per il **LAVORO ESTERNO**.
 
 Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** quando i turni appartengono alla stessa sede. Se una persona copre più intervalli nello stesso giorno e nello stesso luogo, gli intervalli vengono uniti nella stessa riga. Esempio: invece di due righe separate `14:00-15:00` e `16:30-18:30`, la card mostra `14:00-15:00 / 16:30-18:30`.
@@ -114,7 +116,7 @@ Le giornate chiuse restano compatte, ad esempio `LUNEDI 22/06` seguito da `Lago 
 
 Le barre unicode della vecchia timeline sono state rimosse: il PDF usa solo testo semplice, ad esempio `07:30-16:30` oppure `09:00-12:30 / 15:30-19:30`, per evitare punti interrogativi su telefono e anteprime PDF. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
 
-La **pagina 1** è pensata per contenere una settimana normale completa: intestazione compatta, card giornaliere verticali, riepilogo monte ore e note/alert in fondo. Se una settimana estrema contiene troppe note o troppe righe operative, il PDF può creare una pagina di continuazione senza omettere turni.
+La **pagina 1** contiene l'intestazione e le card giornaliere dell'orario settimanale, da lunedì a domenica. La **pagina 2** contiene `RIEPILOGO MONTE ORE SETTIMANALE`, `NOTE OPERATIVE`, `CONFLITTI CRITICI`, `ALERT INFORMATIVI` e `MEMORIE OPERATIVE APPLICATE`. Se una settimana estrema contiene troppe note o troppe righe operative, il PDF può creare una pagina di continuazione senza omettere turni e il riepilogo slitta alla pagina successiva.
 
 I conflitti critici restano separati dagli alert informativi. Sono conflitti critici, ad esempio, coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in una data con codice moglie `M`, o assegnazioni su giorni chiusi senza apertura esplicita. Sono invece alert informativi gli scostamenti di Lorenzo dal target 40 ore o i turni lunghi.
 

@@ -285,16 +285,20 @@ def parse_weekly_instruction(text: str | None) -> WeeklyInstruction:
             evening_start, evening_end = _evening_lake_range_for_text(lowered)
             for person in people:
                 for day in days:
+                    start = explicit_work_range[0] if explicit_work_range else evening_start
+                    end = explicit_work_range[1] if explicit_work_range else evening_end
+                    if (
+                        person == ANGELO.full_name
+                        and day == "Venerdì"
+                        and not explicit_work_range
+                    ):
+                        start, end = "20:00", "22:00"
                     request = CoverageRequest(
                         day,
                         person,
                         ActivityId.LAKE,
-                        (
-                            explicit_work_range[0]
-                            if explicit_work_range
-                            else evening_start
-                        ),
-                        explicit_work_range[1] if explicit_work_range else evening_end,
+                        start,
+                        end,
                         "evento serale lago",
                     )
                     instruction.forced_lake_coverage.append(request)
@@ -1045,6 +1049,10 @@ def _mentions_external_work(lowered_text: str) -> bool:
         "accountant",
         "fornitore",
         "fornitori",
+        "metro",
+        "spesa",
+        "spesa alla metro",
+        "spesa fornitori",
         "supplier",
         "suppliers",
         "amministrazione",
