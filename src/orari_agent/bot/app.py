@@ -16,6 +16,7 @@ from orari_agent.config import BotConfig
 from orari_agent.voice import OpenAiAudioTranscriber
 from orari_agent.storage.db import connect
 from orari_agent.storage.ai_repository import AiConversationRepository
+from orari_agent.ai.audit import AiAuditRepository
 from orari_agent.storage.notes_repository import NotesRepository
 from orari_agent.storage.voice_transcripts_repository import VoiceTranscriptsRepository
 from orari_agent.storage.operational_memory_repository import (
@@ -37,6 +38,7 @@ def build_application(config: BotConfig) -> Application:
     wife_calendar_repository = WifeCalendarRepository(connection)
     operational_memory_repository = OperationalMemoryRepository(connection)
     ai_repository = AiConversationRepository(connection)
+    ai_audit_repository = AiAuditRepository(connection)
     voice_transcripts_repository = VoiceTranscriptsRepository(connection)
     schedule_service = ScheduleService(
         notes_repository,
@@ -55,9 +57,9 @@ def build_application(config: BotConfig) -> Application:
         config.database_path.parent / "backups",
     )
     ai_responder = (
-        OpenAiResponsesClient(config.openai_api_key) if config.openai_api_key else None
+        OpenAiResponsesClient(config.openai_api_key, config.openai_model, config.openai_reasoning_effort) if config.openai_api_key else None
     )
-    ai_agent = AiAgent(ai_responder, ai_tools, ai_repository)
+    ai_agent = AiAgent(ai_responder, ai_tools, ai_repository, ai_audit_repository)
     audio_transcriber = (
         OpenAiAudioTranscriber(config.openai_api_key) if config.openai_api_key else None
     )
@@ -76,6 +78,7 @@ def build_application(config: BotConfig) -> Application:
     application.bot_data["backup_dir"] = config.database_path.parent / "backups"
     application.bot_data["ai_agent"] = ai_agent
     application.bot_data["ai_repository"] = ai_repository
+    application.bot_data["ai_audit_repository"] = ai_audit_repository
     application.bot_data["voice_transcripts_repository"] = voice_transcripts_repository
     application.bot_data["audio_transcriber"] = audio_transcriber
     application.bot_data["audio_dir"] = config.database_path.parent / "audio"
@@ -85,6 +88,7 @@ def build_application(config: BotConfig) -> Application:
     application.add_handler(CommandHandler("aiuto", commands.aiuto))
     application.add_handler(CommandHandler("nota", commands.nota))
     application.add_handler(CommandHandler("lista", commands.lista))
+    application.add_handler(CommandHandler("note", commands.lista))
     application.add_handler(CommandHandler("cancella", commands.cancella))
     application.add_handler(CommandHandler("cancella_tutte", commands.cancella_tutte))
     application.add_handler(CommandHandler("memoria", commands.memoria))
@@ -92,6 +96,7 @@ def build_application(config: BotConfig) -> Application:
         CommandHandler("memoria_aggiungi", commands.memoria_aggiungi)
     )
     application.add_handler(CommandHandler("memoria_lista", commands.memoria_lista))
+    application.add_handler(CommandHandler("memorie", commands.memoria_lista))
     application.add_handler(
         CommandHandler("memoria_cancella", commands.memoria_cancella)
     )
@@ -126,6 +131,10 @@ def build_application(config: BotConfig) -> Application:
         CommandHandler("debug_calendario_moglie", commands.debug_calendario_moglie)
     )
     application.add_handler(CommandHandler("genera", commands.genera))
+    application.add_handler(CommandHandler("stato", commands.stato))
+    application.add_handler(CommandHandler("ultimo_orario", commands.ultimo_orario))
+    application.add_handler(CommandHandler("spiega", commands.spiega))
+    application.add_handler(CommandHandler("debug_ai", commands.debug_ai))
     application.add_handler(CommandHandler("reset_settimana", commands.reset_settimana))
     application.add_handler(
         CommandHandler("trascrivi_ultimo", commands.trascrivi_ultimo)

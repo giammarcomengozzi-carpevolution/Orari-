@@ -22,6 +22,9 @@ class BotConfig:
     output_dir: Path
     openai_api_key: str | None = None
     voice_debug: bool = False
+    openai_model: str = "gpt-4.1-mini"
+    openai_reasoning_effort: str | None = None
+    openai_agent_mode: str = "responses"
 
 
 def load_config(env_file: str | Path = ".env") -> BotConfig:
@@ -62,4 +65,7 @@ def load_config(env_file: str | Path = ".env") -> BotConfig:
         output_dir=output_dir,
         openai_api_key=openai_api_key,
         voice_debug=voice_debug,
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+        openai_reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "").strip() or None,
+        openai_agent_mode=os.getenv("OPENAI_AGENT_MODE", "responses").strip() or "responses",
     )

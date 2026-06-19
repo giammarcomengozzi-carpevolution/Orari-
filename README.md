@@ -1016,3 +1016,138 @@ Bot: Cancellerò le note della settimana prossima. Confermi? Rispondi ‘conferm
 Gianmarco: confermo
 Bot: Azione confermata ed eseguita. Ho archiviato ... note attive.
 ```
+
+## Agente AI operativo Telegram
+
+Il bot Telegram ora è pensato come un **agente AI di pianificazione**, non solo come un elenco di comandi. L'obiettivo è permettere a Gianmarco di scrivere o dettare frasi naturali e trasformarle in vincoli strutturati, memorie operative, generazioni di orario e spiegazioni sull'ultimo PDF prodotto.
+
+### Cosa capisce
+
+L'agente conosce alias e contesto operativo:
+
+- `negozio`, `CarpEvolution Store`, `CarpeEvolution Store`, `Carp Evolution` indicano il negozio di pesca;
+- `lago`, `tenuta`, `Tenuta del Germano` indicano la Tenuta del Germano;
+- `io`, `me`, `sono`, `devo` indicano Gianmarco/Giammarco Mengozzi;
+- Angelo Antonelli è principalmente negozio;
+- Lorenzo Sansavini è principalmente lago.
+
+Esempi di frasi gestite:
+
+```text
+Giovedì sono dal commercialista dalle 10 alle 12.
+Venerdì Angelo dopo il negozio viene al lago fino alle 23.
+Lorenzo martedì lascialo a casa.
+Da luglio il venerdì sera Angelo può sempre aiutare al lago.
+Genera settimana prossima.
+Perché Lorenzo chiude domenica?
+Che note hai usato?
+```
+
+### Workflow dell'agente
+
+Il flusso AI è diviso in stadi tracciabili:
+
+1. **Context loader**: carica note settimanali, memorie operative, calendario moglie e ultimo orario.
+2. **Intent interpreter**: classifica l'intento e produce un oggetto strutturato con confidenza `high`, `medium` o `low`.
+3. **Tool executor**: esegue solo strumenti sicuri e validati, ad esempio salvataggio nota, lista memorie, generazione orario, backup o spiegazione ultimo orario.
+4. **Scheduling planner**: continua a usare il generatore deterministico esistente, combinando regole fisse, note, memorie e calendario moglie.
+5. **Schedule validator**: separa conflitti critici e alert informativi.
+6. **Repair/explanation layer**: conserva lo snapshot dell'ultimo orario e risponde a domande successive.
+7. **Audit trail**: salva l'interpretazione AI nella tabella `ai_events` per debug.
+
+### Confidenza e conferme
+
+L'agente non deve fare assunzioni rischiose:
+
+- alta confidenza + azione non distruttiva: salva automaticamente;
+- media confidenza: chiede conferma;
+- bassa confidenza o pronomi ambigui: chiede chiarimento;
+- cancellazioni, reset o sovrascritture richiedono sempre conferma.
+
+Esempio:
+
+```text
+Utente: Venerdì lui va al lago.
+Bot: Chi intendi? Angelo, Lorenzo o Gianmarco?
+```
+
+### Strumenti strutturati disponibili
+
+Lo strato AI può chiamare strumenti validati, tra cui:
+
+- `add_weekly_note` / `list_weekly_notes` / `delete_weekly_note`;
+- `add_operational_memory` / `list_operational_memories`;
+- `generate_schedule`;
+- `validate_schedule` e `repair_schedule` come passaggi controllati della generazione;
+- `explain_last_schedule` / `get_last_schedule`;
+- `get_wife_calendar_info` / `list_wife_calendar_m_dates`;
+- `create_backup` / `backup_info`.
+
+L'LLM non genera l'orario finale come prosa libera: interpreta l'intento e usa tool strutturati, mentre la pianificazione resta affidata alla logica deterministica del progetto.
+
+### Validazione prima del PDF
+
+Ogni generazione salva uno snapshot dell'orario con:
+
+- note usate;
+- memorie operative usate;
+- riepilogo;
+- PDF generato;
+- conflitti critici;
+- alert informativi.
+
+Sono conflitti critici le coperture mancanti, le sovrapposizioni impossibili, le aperture del lago incompatibili con codice moglie `M`, la copertura serale stagionale mancante o l'assegnazione del negozio scoperta.
+
+Sono alert informativi gli scostamenti di Lorenzo dal target 40 ore, i turni lunghi e gli avvisi di evento serale. Lorenzo può superare o non raggiungere le 40 ore: il bot lo segnala, ma non lo blocca come conflitto critico.
+
+### Comandi Telegram utili
+
+Oltre ai comandi storici, sono disponibili o migliorati:
+
+```text
+/aiuto          mostra cosa capisce l'agente
+/stato          mostra settimana attiva, note, memorie e ultimo orario
+/note           lista le note settimanali
+/memorie        lista le memorie operative persistenti
+/ultimo_orario  riepiloga l'ultimo orario generato
+/spiega         spiega l'ultimo orario o una domanda specifica
+/debug_ai       mostra l'ultima interpretazione AI salvata
+/backup         crea un backup
+/backup_info    mostra lo stato dei backup
+```
+
+### Esempi conversazionali
+
+```text
+Utente: Giovedì Lorenzo va dal commercialista dalle 10 alle 12.
+Bot: Ok, salvo vincolo settimanale: Lorenzo Sansavini giovedì 10:00-12:00, lavoro esterno/commercialista.
+```
+
+```text
+Utente: Venerdì Angelo dopo il negozio viene al lago fino alle 23.
+Bot: Ok, salvo vincolo settimanale: Angelo Antonelli copre il negozio 09:00-12:30 / 15:30-19:30 e poi supporta il lago 19:30-23:00.
+```
+
+```text
+Utente: Genera settimana prossima.
+Bot: Genero l'orario della settimana richiesta. Uso note, memorie e calendario moglie salvati. Dopo la generazione invio il PDF con caption breve e il riepilogo in messaggi separati.
+```
+
+```text
+Utente: Che note hai usato?
+Bot: Note usate per l'ultimo orario:
+• Venerdì Angelo dopo il negozio al lago fino alle 23
+```
+
+### Configurazione OpenAI
+
+La configurazione AI resta controllata da variabili d'ambiente:
+
+```text
+OPENAI_API_KEY=
+OPENAI_MODEL=
+OPENAI_REASONING_EFFORT=
+OPENAI_AGENT_MODE=responses
+```
+
+Se `OPENAI_API_KEY` manca, i comandi deterministici continuano a funzionare e il bot risponde che la modalità AI non è configurata.

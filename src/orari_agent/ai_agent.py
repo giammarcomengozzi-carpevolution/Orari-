@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from orari_agent.ai_tools import AiToolExecutor, DESTRUCTIVE_TOOLS, ToolExecutionResult
 from orari_agent.storage.ai_repository import AiConversationRepository
+from orari_agent.ai.audit import AiAuditRepository
 
 LOGGER = logging.getLogger(__name__)
 MISSING_AI_KEY_MESSAGE = "Modalità AI non configurata: manca OPENAI_API_KEY."
@@ -46,11 +47,12 @@ class OpenAiResponder(Protocol):
 class OpenAiResponsesClient:
     """Wrapper isolato dell'SDK OpenAI Responses API, facile da mockare nei test."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1-mini") -> None:
+    def __init__(self, api_key: str, model: str = "gpt-4.1-mini", reasoning_effort: str | None = None) -> None:
         from openai import OpenAI
 
         self.client = OpenAI(api_key=api_key)
         self.model = model
+        self.reasoning_effort = reasoning_effort
 
     def respond(self, user_message: str) -> str:
         response = self.client.responses.create(
@@ -76,10 +78,12 @@ class AiAgent:
         responder: OpenAiResponder | None,
         tools: AiToolExecutor,
         repository: AiConversationRepository,
+        audit_repository: AiAuditRepository | None = None,
     ) -> None:
         self.responder = responder
         self.tools = tools
         self.repository = repository
+        self.audit_repository = audit_repository
 
     @property
     def configured(self) -> bool:
@@ -145,15 +149,14 @@ class AiAgent:
                 f"Ho capito la richiesta, ma non sono riuscito a completarla: {exc}"
             )
 
-        return AiHandleResult(
-            _compose_results_message(
-                _safe_user_message_for_results(
-                    clean_text, decision.user_message, tool_calls_payload
-                ),
-                results,
+        final_message = _compose_results_message(
+            _safe_user_message_for_results(
+                clean_text, decision.user_message, tool_calls_payload
             ),
             results,
         )
+        self._audit(user_id, clean_text, decision, tool_calls_payload, results, final_message)
+        return AiHandleResult(final_message, results)
 
     def _requires_confirmation(self, decision: AiDecision) -> bool:
         if decision.needs_confirmation:
@@ -172,6 +175,35 @@ class AiAgent:
             results.append(self.tools.execute(name, arguments))
         return results
 
+
+    def _audit(
+        self,
+        user_id: int,
+        text: str,
+        decision: AiDecision,
+        tool_calls_payload: list[dict[str, Any]],
+        results: list[ToolExecutionResult],
+        bot_response: str,
+    ) -> None:
+        if self.audit_repository is None:
+            return
+        first_call = tool_calls_payload[0] if tool_calls_payload else {}
+        first_result = results[0].data if results else {}
+        try:
+            self.audit_repository.add_event(
+                telegram_user_id=user_id,
+                raw_user_text=text,
+                normalized_text=text.lower(),
+                detected_intent=decision.action or "unknown",
+                confidence=decision.confidence,
+                requires_confirmation=decision.needs_confirmation,
+                tool_called=str(first_call.get("name", "")),
+                tool_arguments=first_call.get("arguments", {}) if isinstance(first_call.get("arguments", {}), dict) else {},
+                tool_result=first_result,
+                bot_response=bot_response,
+            )
+        except Exception:  # noqa: BLE001 - audit non deve rompere il bot
+            LOGGER.exception("Errore salvataggio audit AI")
 
 def parse_ai_decision(raw_json: str) -> AiDecision:
     payload = json.loads(raw_json)

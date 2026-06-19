@@ -87,6 +87,45 @@ CREATE TABLE IF NOT EXISTS ai_pending_actions (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS latest_schedule_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    schedule_id INTEGER,
+    week_start TEXT NOT NULL,
+    week_end TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_latest_schedule_snapshots_created
+ON latest_schedule_snapshots(created_at);
+
+CREATE TABLE IF NOT EXISTS ai_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    telegram_user_id INTEGER,
+    raw_user_text TEXT NOT NULL,
+    normalized_text TEXT,
+    detected_intent TEXT,
+    confidence TEXT,
+    requires_confirmation INTEGER NOT NULL DEFAULT 0,
+    tool_called TEXT,
+    tool_arguments_json TEXT,
+    tool_result_json TEXT,
+    bot_response TEXT,
+    related_note_id INTEGER,
+    related_schedule_id INTEGER,
+    error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_events_user_timestamp
+ON ai_events(telegram_user_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS conversation_state (
+    telegram_user_id INTEGER PRIMARY KEY,
+    state_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS voice_transcripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,

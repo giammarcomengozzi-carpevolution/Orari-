@@ -112,7 +112,7 @@ async def aiuto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/genera — genera il PDF della prossima settimana\n"
         "/genera dal 17 al 23 giugno — genera una settimana specifica\n"
         "/reset_settimana dal 17 al 23 giugno confermo — archivia le note attive della settimana\n"
-        "/trascrivi_ultimo — mostra l’ultima trascrizione vocale salvata\n\n"
+        "/trascrivi_ultimo — mostra l’ultima trascrizione vocale salvata\n/stato — mostra note, memorie e ultimo orario\n/note — alias lista note settimanali\n/memorie — alias lista memorie operative\n/ultimo_orario — riepiloga ultimo orario generato\n/spiega — spiega ultimo orario o una domanda specifica\n/debug_ai — mostra ultima interpretazione AI\n\n"
         "Puoi anche scrivere una frase normale o mandare un vocale: verrà interpretato dall’AI."
     )
 
@@ -747,6 +747,71 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not text:
         return
     await _handle_ai_agent_text(update, context, text)
+
+async def stato(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, notes_repository, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    start, end = current_or_next_week_bounds()
+    notes = notes_repository.active_for_week(start.isoformat(), end.isoformat())
+    memories = _memory_repo(context).list_active()
+    schedules_repo = context.application.bot_data.get("schedule_service").schedules_repository
+    latest = schedules_repo.latest()
+    latest_text = f"{latest['week_start']} / {latest['week_end']}" if latest else "nessun orario generato"
+    await update.effective_message.reply_text(
+        f"Stato agente:\nSettimana attiva: {start.isoformat()} / {end.isoformat()}\n"
+        f"Note attive: {len(notes)}\nMemorie operative: {len(memories)}\nUltimo orario: {latest_text}"
+    )
+
+
+async def ultimo_orario(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, schedule_service, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    latest = schedule_service.schedules_repository.latest()
+    if latest is None:
+        await update.effective_message.reply_text("Nessun orario generato finora.")
+        return
+    await update.effective_message.reply_text(
+        f"Ultimo orario: {latest['week_start']} / {latest['week_end']}\n{latest['summary']}"
+    )
+
+
+async def spiega(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, schedule_service, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    from orari_agent.ai.schedule_explainer import ScheduleExplainer
+    question = " ".join(context.args).strip()
+    await update.effective_message.reply_text(
+        ScheduleExplainer(schedule_service.schedules_repository).explain(question)
+    )
+
+
+async def debug_ai(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_user_id, _, _, _ = _deps(context)
+    if not is_allowed_user(update, allowed_user_id):
+        await reject_unauthorized(update)
+        return
+    audit = context.application.bot_data.get("ai_audit_repository")
+    if audit is None:
+        await update.effective_message.reply_text("Audit AI non configurato.")
+        return
+    row = audit.latest_event(_effective_user_id(update, allowed_user_id))
+    if row is None:
+        await update.effective_message.reply_text("Nessuna interpretazione AI registrata.")
+        return
+    await update.effective_message.reply_text(
+        "Ultima interpretazione AI:\n"
+        f"Intento: {row['detected_intent']}\n"
+        f"Confidenza: {row['confidence']}\n"
+        f"Richiede conferma: {'sì' if row['requires_confirmation'] else 'no'}\n"
+        f"Tool: {row['tool_called'] or 'nessuno'}\n"
+        f"Risposta: {row['bot_response']}"
+    )
 
 
 async def trascrivi_ultimo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

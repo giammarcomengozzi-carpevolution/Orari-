@@ -28,6 +28,7 @@ from orari_agent.storage.operational_memory_repository import (
 from orari_agent.storage.schedules_repository import SchedulesRepository
 from orari_agent.weekly_input import parse_weekly_instruction
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
+from orari_agent.ai.schedule_validator import ScheduleValidator
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class ScheduleService:
             wife_calendar_codes=self.wife_calendar_repository.load_codes(),
         )
         warnings = _collect_warnings(schedule)
+        validation = ScheduleValidator().validate(schedule, warnings)
         summary = _build_summary(
             schedule, week_start, week_end, warnings, len(notes), len(memories)
         )
@@ -90,12 +92,27 @@ class ScheduleService:
             weekly_notes=[note.raw_text for note in notes],
             operational_memories=[memory.raw_text for memory in memories],
         )
-        self.schedules_repository.add(
+        schedule_id = self.schedules_repository.add(
             week_start=week_start,
             week_end=week_end,
             pdf_path=str(pdf_path),
             summary=summary,
             warnings="\n".join(warnings),
+        )
+        self.schedules_repository.save_snapshot(
+            schedule_id=schedule_id,
+            week_start=week_start,
+            week_end=week_end,
+            snapshot={
+                "week_start": week_start,
+                "week_end": week_end,
+                "pdf_path": str(pdf_path),
+                "summary": summary,
+                "notes_used": [note.raw_text for note in notes],
+                "memories_used": [memory.raw_text for memory in memories],
+                "warnings": warnings,
+                "validation": validation.to_dict(),
+            },
         )
         return GeneratedScheduleResult(
             pdf_path=pdf_path,
