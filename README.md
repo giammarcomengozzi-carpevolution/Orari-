@@ -100,17 +100,19 @@ Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** 
 
 Il PDF non forza piu tutta la settimana in una sola pagina: la leggibilita ha priorita sulla compressione. Le settimane semplici possono stare in una pagina, mentre le settimane normali o piene possono usare due pagine; se il riepilogo non entra sotto le card, viene spostato in una pagina di riepilogo.
 
-Le mini-intestazioni ripetute dentro ogni card sono state rimosse. Ogni turno viene mostrato come una riga testuale semplice nel formato:
+Dentro ogni sezione il PDF usa ora una piccola tabella ReportLab allineata, con tre colonne:
 
 ```text
-Persona - Orario - Pausa intervallo - Compito - Ore giorno
+Persona | Turno/Pausa/Compito | Ore
 ```
+
+La colonna centrale contiene orario, pausa e compito in testo semplice, ad esempio `07:30-16:30 | pausa 14:00-15:00 | APERTURA LAGO`. La colonna **Ore** resta separata e allineata a destra, così le ore giornaliere sono più facili da scorrere visivamente anche quando il dettaglio del turno va a capo.
 
 Esempi di righe leggibili:
 
-- `Lorenzo Sansavini - 07:30-16:30 - Pausa 14:00-15:00 - APERTURA LAGO - 8h 00m`;
-- `Angelo Antonelli - 09:00-12:30 / 15:30-19:30 - Pausa 12:30-15:30 - NEGOZIO - 7h 30m`;
-- `Gianmarco Mengozzi - 14:00-15:00 / 16:30-18:30 - Pausa - - LAGO + CHIUSURA LAGO - 3h 00m`.
+- `Lorenzo Sansavini | 07:30-16:30 | pausa 14:00-15:00 | APERTURA LAGO | 8h 00m`;
+- `Angelo Antonelli | 09:00-12:30 / 15:30-19:30 | pausa 12:30-15:30 | NEGOZIO | 7h 30m`;
+- `Gianmarco Mengozzi | 14:00-15:00 / 16:30-18:30 | pausa - | LAGO + CHIUSURA LAGO | 3h 00m`.
 
 Le giornate chiuse restano compatte, ad esempio `LUNEDI 22/06` seguito da `Lago chiuso | Negozio chiuso`, senza grandi box vuoti.
 

@@ -31,8 +31,10 @@ def test_export_weekly_schedule_pdf_creates_portrait_pdf_with_compact_layout(
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
     assert b"MARTEDI" in content
     assert b"SABATO" in content
-    assert content.count(b"Persona") == 0
-    assert b" - Pausa " in content
+    assert b"Persona" in content
+    assert b"Turno / Pausa / Compito" in content
+    assert b"Ore" in content
+    assert b"pausa" in content
     assert b"Lago mattina" not in content
     assert b"Negozio pomeriggio" not in content
     assert b"CONFLITTI CRITICI" in content
@@ -48,7 +50,7 @@ def test_standard_weekly_pdf_fits_one_portrait_page_with_bottom_sections(tmp_pat
     assert content.count(b"/Type /Page /Parent") == 1
     assert b"/MediaBox [0 0 595.28 841.89]" in content
     assert b"RIEPILOGO MONTE ORE" in content
-    assert b"NOTE / ALERT" in content
+    assert b"NOTE OPERATIVE" in content
     assert b"CONFLITTI CRITICI" in content
 
 
@@ -84,7 +86,7 @@ def test_export_weekly_schedule_pdf_does_not_crash_with_many_notes(tmp_path):
 
     content = pdf_path.read_bytes()
     assert pdf_path.exists()
-    assert b"NOTE / ALERT" in content
+    assert b"NOTE OPERATIVE" in content
     assert b"Pagina 2" in content
 
 
@@ -118,8 +120,10 @@ def test_operational_pdf_shows_effective_shift_rows_and_weekly_totals(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert content.count(b"Persona") == 0
-    assert b" - Pausa " in content
+    assert b"Persona" in content
+    assert b"Turno / Pausa / Compito" in content
+    assert b"Ore" in content
+    assert b"pausa" in content
     assert b"Lago mattina" not in content
     assert b"Lago pomeriggio" not in content
     assert b"Negozio mattina" not in content
@@ -147,6 +151,38 @@ def test_operational_pdf_can_show_lake_second_shift_with_break(tmp_path):
     assert b"09:30-18:30" in content
     assert b"13:30-14:30" in content
     assert b"CHIUSURA LAGO" in content
+
+
+def test_pdf_day_section_rows_use_structured_columns_for_person_details_and_hours():
+    from dataclasses import replace
+
+    from orari_agent.pdf_exporter import _measure_day_block_height
+
+    schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
+    friday = next(
+        view for view in operational_day_views(schedule) if view.day == "Venerdì"
+    )
+    lake = next(
+        section for section in friday.location_sections if section.location == "LAGO"
+    )
+    row = lake.rows[0]
+
+    assert row.person
+    assert row.work_time
+    assert row.break_time
+    assert row.task
+    assert row.daily_hours > 0
+
+    long_row = replace(
+        row,
+        task="EVENTO SERALE LAGO + CHIUSURA LAGO 23:00 + CONTROLLO PRENOTAZIONI + SUPPORTO CLIENTI + VERIFICA CASSA + CONSEGNA CHIAVI + ASSISTENZA CLIENTI EXTRA",
+    )
+    long_lake = replace(lake, rows=(long_row,))
+    short_lake = replace(lake, rows=(row,))
+
+    assert _measure_day_block_height(
+        replace(friday, location_sections=(long_lake,))
+    ) > _measure_day_block_height(replace(friday, location_sections=(short_lake,)))
 
 
 def test_operational_day_view_merges_same_person_day_location_segments():
@@ -191,7 +227,9 @@ def test_operational_pdf_uses_day_cards_and_keeps_weekly_totals(tmp_path):
         assert day in content
     assert b"LAGO" in content
     assert b"NEGOZIO" in content
-    assert b" - Pausa " in content
+    assert b"Persona" in content
+    assert b"Turno / Pausa / Compito" in content
+    assert b"Ore" in content
     assert b"RIEPILOGO MONTE ORE" in content
     assert b"OK 40h" in content
 
