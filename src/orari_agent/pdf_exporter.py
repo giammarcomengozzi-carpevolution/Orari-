@@ -18,6 +18,7 @@ from .presentation import (
     EffectiveShift,
     OperationalDayView,
     OperationalShiftRow,
+    LocationSection,
     critical_conflicts,
     display_person,
     effective_shifts,
@@ -171,9 +172,20 @@ def _build_pdf_pages(
         else:
             end = _fit_day_end(day_views, day_index, top_y, page_bottom_y)
             if end == day_index:
-                end = min(day_index + 1, len(day_views))
-            _draw_day_cards(commands, day_views[day_index:end], top_y, page_bottom_y)
-            day_index = end
+                chunks = _day_section_chunks(day_views[day_index], top_y, page_bottom_y)
+                _draw_day_cards(commands, [chunks[0]], top_y, page_bottom_y)
+                if len(chunks) > 1:
+                    day_views = [
+                        *day_views[: day_index + 1],
+                        *chunks[1:],
+                        *day_views[day_index + 1 :],
+                    ]
+                day_index += 1
+            else:
+                _draw_day_cards(
+                    commands, day_views[day_index:end], top_y, page_bottom_y
+                )
+                day_index = end
 
         _draw_footer(commands, page_number)
         pages.append("\n".join(commands).encode("latin-1", errors="replace"))
@@ -203,7 +215,16 @@ def _draw_header(
 ) -> None:
     top = PAGE_HEIGHT - 22
     header_height = 48 if not compact else 42
-    _draw_filled_rect(commands, 0, PAGE_HEIGHT - header_height, PAGE_WIDTH, header_height, 0.05, 0.20, 0.12)
+    _draw_filled_rect(
+        commands,
+        0,
+        PAGE_HEIGHT - header_height,
+        PAGE_WIDTH,
+        header_height,
+        0.05,
+        0.20,
+        0.12,
+    )
     _add_text(
         commands,
         MARGIN,
@@ -284,6 +305,15 @@ def _date_for_row(week_start_date: str | None, index: int) -> str:
     return (start + timedelta(days=index)).isoformat()
 
 
+DAY_TITLE_SIZE = 9.0
+SECTION_TITLE_SIZE = 7.8
+SHIFT_ROW_SIZE = 6.8
+SHIFT_LINE_HEIGHT = 7.8
+DAY_HEADER_HEIGHT = 15.0
+DAY_INNER_PAD = 5.0
+DAY_GAP = 6.0
+
+
 def _draw_day_cards(
     commands: list[str],
     days: list[OperationalDayView],
@@ -292,11 +322,11 @@ def _draw_day_cards(
 ) -> float:
     y = top_y
     for day in days:
-        height = _day_card_height(day)
+        height = _measure_day_block_height(day)
         if y - height < bottom_y:
             break
-        _draw_day_card(commands, day, y, height)
-        y -= height + 8.0
+        _render_day_block(commands, day, y)
+        y -= height + DAY_GAP
     return y
 
 
@@ -306,97 +336,155 @@ def _fit_day_end(
     y = top_y
     index = start_index
     while index < len(days):
-        height = _day_card_height(days[index])
+        height = _measure_day_block_height(days[index])
         if y - height < bottom_y:
             break
-        y -= height + 8.0
+        y -= height + DAY_GAP
         index += 1
     return index
 
 
 def _day_card_height(day: OperationalDayView) -> float:
+    return _measure_day_block_height(day)
+
+
+def _measure_day_block_height(day: OperationalDayView) -> float:
     if not any(section.rows for section in day.location_sections):
-        return 20.0
-    row_count = sum(len(section.rows) for section in day.location_sections)
-    visible_sections = sum(1 for section in day.location_sections if section.rows)
-    return 17.0 + visible_sections * 13.0 + row_count * 8.2 + 4.0
+        return DAY_HEADER_HEIGHT + 15.0
+    height = DAY_HEADER_HEIGHT + 4.0
+    visible_sections = [section for section in day.location_sections if section.rows]
+    for index, section in enumerate(visible_sections):
+        height += _measure_section_height(section)
+        if index < len(visible_sections) - 1:
+            height += 4.0
+    return height + DAY_INNER_PAD
+
+
+def _measure_section_height(section) -> float:
+    height = 7.8 + 3.0
+    for row in section.rows:
+        height += len(_wrap_shift_line(row)) * SHIFT_LINE_HEIGHT + 2.0
+    return height
 
 
 def _draw_day_card(
     commands: list[str], day: OperationalDayView, top_y: float, height: float
 ) -> None:
+    _render_day_block(commands, day, top_y)
+
+
+def _render_day_block(
+    commands: list[str], day: OperationalDayView, top_y: float
+) -> float:
+    height = _measure_day_block_height(day)
     bottom_y = top_y - height
     title = f"{day.day.upper()} {_short_date(day.date)}"
-    _draw_filled_rect(commands, MARGIN, top_y - 15, TABLE_WIDTH, 15, 0.14, 0.25, 0.39)
-    _add_text(commands, MARGIN + 5, top_y - 10, title, 7.8, bold=True, color=(1, 1, 1))
+    _draw_filled_rect(
+        commands,
+        MARGIN,
+        top_y - DAY_HEADER_HEIGHT,
+        TABLE_WIDTH,
+        DAY_HEADER_HEIGHT,
+        0.14,
+        0.25,
+        0.39,
+    )
     _add_text(
         commands,
-        MARGIN + 98,
-        top_y - 10,
-        f"{lake_opening_label(day.day, day.date)}  |  {shop_opening_label(day.day)}",
-        6.0,
-        color=(0.88, 0.95, 0.90),
+        MARGIN + 5,
+        top_y - 10.2,
+        title,
+        DAY_TITLE_SIZE,
+        bold=True,
+        color=(1, 1, 1),
+    )
+    opening = (
+        f"{lake_opening_label(day.day, day.date)}  |  {shop_opening_label(day.day)}"
+    )
+    _add_text(
+        commands, MARGIN + 104, top_y - 10.2, opening, 6.2, color=(0.88, 0.95, 0.90)
     )
 
     if not any(section.rows for section in day.location_sections):
         _add_text(commands, MARGIN + 5, top_y - 25, "Lago chiuso | Negozio chiuso", 6.8)
-        return
+        return bottom_y
 
     _draw_rect(commands, MARGIN, bottom_y, TABLE_WIDTH, height, stroke_gray=0.70)
-    y = top_y - 25
+    y = top_y - DAY_HEADER_HEIGHT - 4.0
+    visible_sections = [section for section in day.location_sections if section.rows]
+    for index, section in enumerate(visible_sections):
+        y = _render_section(commands, section, y)
+        if index < len(visible_sections) - 1:
+            y -= 4.0
+    return bottom_y
+
+
+def _render_section(commands: list[str], section, top_y: float) -> float:
+    _add_text(
+        commands,
+        MARGIN + 5,
+        top_y,
+        section.location,
+        SECTION_TITLE_SIZE,
+        bold=True,
+        color=(0.05, 0.20, 0.12),
+    )
+    y = top_y - 10.8
+    for row in section.rows:
+        y = _render_wrapped_lines(commands, _wrap_shift_line(row), y)
+        y -= 2.0
+    return y
+
+
+def _wrap_shift_line(row: OperationalShiftRow) -> list[str]:
+    line = (
+        f"{display_person(row.person)} - {row.work_time} - Pausa {row.break_time} - "
+        f"{row.task} - {format_duration(row.daily_hours)}"
+    )
+    return _wrap_cell(line, TABLE_WIDTH - 14.0, SHIFT_ROW_SIZE)
+
+
+def _render_wrapped_lines(
+    commands: list[str], lines: Sequence[str], top_y: float
+) -> float:
+    y = top_y
+    for line in lines:
+        _add_text(commands, MARGIN + 8, y, line, SHIFT_ROW_SIZE)
+        y -= SHIFT_LINE_HEIGHT
+    return y
+
+
+def _day_section_chunks(
+    day: OperationalDayView, top_y: float, bottom_y: float
+) -> list[OperationalDayView]:
+    chunks: list[OperationalDayView] = []
     for section in day.location_sections:
         if not section.rows:
             continue
-        _add_text(
-            commands,
-            MARGIN + 5,
-            y,
-            section.location,
-            6.9,
-            bold=True,
-            color=(0.05, 0.20, 0.12),
-        )
-        _draw_day_row_header(commands, y)
-        y -= 8.0
+        current = []
         for row in section.rows:
-            _draw_day_shift_row(commands, row, y)
-            y -= 8.2
-        y -= 3.0
-
-
-def _draw_day_row_header(commands: list[str], y: float) -> None:
-    headers = [
-        ("Persona", 0),
-        ("Orario", 132),
-        ("Pausa", 286),
-        ("Compito", 372),
-        ("Ore", 520),
-    ]
-    for label, offset in headers:
-        _add_text(
-            commands,
-            MARGIN + 5 + offset,
-            y,
-            label,
-            5.7,
-            bold=True,
-            color=(0.25, 0.25, 0.25),
-        )
-
-
-def _draw_day_shift_row(
-    commands: list[str], row: OperationalShiftRow, y: float
-) -> None:
-    values = [
-        (display_person(row.person), 0, 124, 6.4),
-        (row.work_time, 132, 145, 6.3),
-        (row.break_time, 286, 78, 6.1),
-        (row.task, 372, 140, 6.1),
-        (format_duration(row.daily_hours), 520, 34, 6.0),
-    ]
-    for text, offset, width, size in values:
-        line = _wrap_cell(text, width, size)[0]
-        _add_text(commands, MARGIN + 5 + offset, y, line, size)
+            trial_section = LocationSection(section.location, tuple([*current, row]))
+            trial_day = OperationalDayView(day.day, day.date, (trial_section,))
+            if current and _measure_day_block_height(trial_day) > top_y - bottom_y:
+                chunks.append(
+                    OperationalDayView(
+                        day.day,
+                        day.date,
+                        (LocationSection(section.location, tuple(current)),),
+                    )
+                )
+                current = [row]
+            else:
+                current.append(row)
+        if current:
+            chunks.append(
+                OperationalDayView(
+                    day.day,
+                    day.date,
+                    (LocationSection(section.location, tuple(current)),),
+                )
+            )
+    return chunks or [day]
 
 
 def _short_date(value: str) -> str:
@@ -607,7 +695,9 @@ def _draw_summary_sections(
         text_y = top_y - 23
         preview_lines = _section_preview_lines(items, box_width)
         for line in preview_lines[:4]:
-            _add_text(commands, x + 5, text_y, "- " + line, 6.0, color=(0.10, 0.10, 0.10))
+            _add_text(
+                commands, x + 5, text_y, "- " + line, 6.0, color=(0.10, 0.10, 0.10)
+            )
             text_y -= 7.4
     return y
 
