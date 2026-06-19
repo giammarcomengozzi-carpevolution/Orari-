@@ -8,7 +8,7 @@ from typing import Iterable, Sequence
 
 try:
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
@@ -24,6 +24,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - dipendenza dichiarata in pyproject
     colors = None
     TA_LEFT = 0
+    TA_RIGHT = 2
     A4 = (595.2755905511812, 841.8897637795277)
     ParagraphStyle = object
     getSampleStyleSheet = None
@@ -151,18 +152,11 @@ def _day_block(view: OperationalDayView, styles: dict[str, ParagraphStyle]):
     opening = f"{lake_opening_label(view.day, view.date)} | {shop_opening_label(view.day)}"
     data: list[list] = [[Paragraph(day_date, styles["day"]), Paragraph(opening, styles["small"] )]]
 
-    has_rows = False
     for section in view.location_sections:
         if not section.rows:
             continue
-        has_rows = True
         data.append([Paragraph(section.location, styles["section"]), ""])
-        for row in section.rows:
-            line = (
-                f"{display_person(row.person)} | {row.work_time} | pausa {row.break_time} | "
-                f"{row.task} | {format_duration(row.daily_hours)}"
-            )
-            data.append([Paragraph(line, styles["row"]), ""])
+        data.append([_shift_rows_table(section.rows, styles), ""])
 
     table = Table(data, colWidths=[38 * mm, PAGE_WIDTH - (2 * _MARGIN) - 38 * mm])
     style_commands = [
@@ -171,15 +165,45 @@ def _day_block(view: OperationalDayView, styles: dict[str, ParagraphStyle]):
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF3ED")),
         ("BOX", (0, 0), (-1, -1), 0.35, colors.HexColor("#A7B8AD")),
         ("INNERGRID", (0, 0), (-1, -1), 0.15, colors.HexColor("#D7E0DA")),
-        ("SPAN", (0, 1), (1, 1)) if has_rows else ("LINEBELOW", (0, 0), (-1, 0), 0.15, colors.HexColor("#D7E0DA")),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.15, colors.HexColor("#D7E0DA")),
     ]
     for index in range(1, len(data)):
         if len(data[index]) == 2 and data[index][1] == "":
             style_commands.append(("SPAN", (0, index), (1, index)))
-            if index > 1 and str(getattr(data[index][0], "text", "")).isupper():
+            if index % 2 == 1:
                 style_commands.append(("BACKGROUND", (0, index), (-1, index), colors.HexColor("#F6F8F6")))
     table.setStyle(TableStyle(style_commands))
     return KeepTogether([table]) if len(data) <= 7 else table
+
+
+def _shift_rows_table(rows: Sequence, styles: dict[str, ParagraphStyle]):
+    available_width = PAGE_WIDTH - (2 * _MARGIN) - 4 * mm
+    col_widths = [available_width * 0.28, available_width * 0.57, available_width * 0.15]
+    data = [[
+        Paragraph("Persona", styles["table_header"]),
+        Paragraph("Turno / Pausa / Compito", styles["table_header"]),
+        Paragraph("Ore", styles["table_header_right"]),
+    ]]
+    for row in rows:
+        details = f"{row.work_time} | pausa {row.break_time} | {row.task}"
+        data.append([
+            Paragraph(display_person(row.person), styles["table_cell"]),
+            Paragraph(details, styles["table_cell"]),
+            Paragraph(format_duration(row.daily_hours), styles["table_cell_right"]),
+        ])
+    table = Table(data, colWidths=col_widths, hAlign="LEFT", splitByRow=1)
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEF3EF")),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.25, colors.HexColor("#A7B8AD")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.1, colors.HexColor("#E3E8E4")),
+        ("RIGHTPADDING", (2, 0), (2, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.2),
+    ]))
+    return table
 
 
 def _summary_flowables(
@@ -224,6 +248,10 @@ def _styles() -> dict[str, ParagraphStyle]:
         "day": ParagraphStyle("Day", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9, leading=11),
         "section": ParagraphStyle("Section", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10),
         "row": ParagraphStyle("Row", parent=base["Normal"], fontName="Helvetica", fontSize=7, leading=8.4),
+        "table_header": ParagraphStyle("TableHeader", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=6.8, leading=8),
+        "table_header_right": ParagraphStyle("TableHeaderRight", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=6.8, leading=8, alignment=TA_RIGHT),
+        "table_cell": ParagraphStyle("TableCell", parent=base["Normal"], fontName="Helvetica", fontSize=6.8, leading=8.1),
+        "table_cell_right": ParagraphStyle("TableCellRight", parent=base["Normal"], fontName="Helvetica", fontSize=6.8, leading=8.1, alignment=TA_RIGHT),
         "small": ParagraphStyle("Small", parent=base["Normal"], fontName="Helvetica", fontSize=7.2, leading=8.6),
         "heading": ParagraphStyle("Heading", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9, leading=11, spaceBefore=2),
     }
