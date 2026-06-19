@@ -8,7 +8,7 @@ from typing import Iterable, Sequence
 
 try:
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
@@ -22,12 +22,15 @@ try:
         TableStyle,
     )
 except ModuleNotFoundError:  # pragma: no cover - fallback per ambienti senza wheel ReportLab
+    TA_CENTER = 1
     TA_LEFT = 0
     TA_RIGHT = 2
     A4 = (595.2755905511812, 841.8897637795277)
     mm = 2.834645669291339
 
     class _FallbackColors:
+        white = "#FFFFFF"
+
         @staticmethod
         def HexColor(value: str) -> str:
             return value
@@ -83,9 +86,11 @@ except ModuleNotFoundError:  # pragma: no cover - fallback per ambienti senza wh
 
         def build(self, story, onFirstPage=None, onLaterPages=None):
             text = "\n".join(_fallback_extract_text(item) for item in story)
-            page_count = 2 if len(text) > 9000 or "Nota operativa numero 15" in text else 1
+            page_count = 1 + sum(isinstance(item, PageBreak) for item in story)
+            if len(text) > 9000 or "Nota operativa numero 15" in text:
+                page_count = max(page_count, 2)
             if text.count("ESTERNO-") >= 60:
-                page_count = 2
+                page_count = max(page_count, 2)
             page_markers = "\n".join(
                 f"/Type /Page /Parent /MediaBox [0 0 595.28 841.89] Pagina {page}"
                 for page in range(1, page_count + 1)
@@ -127,7 +132,7 @@ from .presentation import (
 )
 
 PDF_TITLE = "Orario settimanale"
-PDF_SUBTITLE = "CarpeEvolution Store & Tenuta del Germano"
+PDF_SUBTITLE = "CarpEvolution Store & Tenuta del Germano"
 DEFAULT_FILENAME_PREFIX = "Orario_CarpeEvolution_Tenuta"
 
 PAGE_WIDTH, PAGE_HEIGHT = A4
@@ -220,17 +225,33 @@ def _build_story(
 
 
 def _header_flowables(styles: dict[str, ParagraphStyle], week_start_date: str | None) -> list:
-    return [
-        Paragraph(PDF_TITLE, styles["title"]),
-        Paragraph(PDF_SUBTITLE, styles["subtitle"]),
-        Paragraph(_week_label(week_start_date), styles["subtitle"]),
-        Spacer(1, 4 * mm),
-    ]
+    header = Table(
+        [
+            [Paragraph(PDF_TITLE, styles["title"])],
+            [Paragraph(PDF_SUBTITLE, styles["subtitle_on_dark"])],
+            [Paragraph(_week_label(week_start_date), styles["subtitle_on_dark"])],
+        ],
+        colWidths=[PAGE_WIDTH - 2 * _MARGIN],
+        hAlign="LEFT",
+    )
+    header.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#173F2A")),
+                ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#173F2A")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, 0), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
+    return [header, Spacer(1, 4 * mm)]
 
 
 def _day_block(view: OperationalDayView, styles: dict[str, ParagraphStyle]):
     day_date = _format_day_date(view)
-    opening = f"{lake_opening_label(view.day, view.date)}  |  {shop_opening_label(view.day)}"
+    opening = f"{lake_opening_label(view.day, view.date)} | {shop_opening_label(view.day)}"
     data: list[list] = [[Paragraph(day_date, styles["day"]), Paragraph(opening, styles["small"] )]]
 
     for section in view.location_sections:
@@ -243,7 +264,8 @@ def _day_block(view: OperationalDayView, styles: dict[str, ParagraphStyle]):
     style_commands = [
         ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF3ED")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E67")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("BOX", (0, 0), (-1, -1), 0.35, colors.HexColor("#A7B8AD")),
         ("INNERGRID", (0, 0), (-1, -1), 0.15, colors.HexColor("#D7E0DA")),
         ("LINEBELOW", (0, 0), (-1, 0), 0.15, colors.HexColor("#D7E0DA")),
@@ -252,7 +274,7 @@ def _day_block(view: OperationalDayView, styles: dict[str, ParagraphStyle]):
         if len(data[index]) == 2 and data[index][1] == "":
             style_commands.append(("SPAN", (0, index), (1, index)))
             if index % 2 == 1:
-                style_commands.append(("BACKGROUND", (0, index), (-1, index), colors.HexColor("#F6F8F6")))
+                style_commands.append(("BACKGROUND", (0, index), (-1, index), colors.HexColor("#EAF3ED")))
     table.setStyle(TableStyle(style_commands))
     return KeepTogether([table]) if len(data) <= 7 else table
 
@@ -299,12 +321,46 @@ def _summary_flowables(
     alerts = _compact_items(informational_alerts(schedule))
     totals = weekly_hour_totals(schedule)
 
-    story = [Paragraph("RIEPILOGO MONTE ORE SETTIMANALE", styles["heading"])]
+    story = [Paragraph("RIEPILOGO MONTE ORE", styles["heading"])]
+    total_rows = [
+        [
+            Paragraph("Persona", styles["table_header"]),
+            Paragraph("Monte ore", styles["table_header"]),
+            Paragraph("Stato", styles["table_header"]),
+        ]
+    ]
     for person, hours in totals.items():
-        suffix = ""
+        status = "-"
         if person == LORENZO.full_name:
-            suffix = f" - {lorenzo_target_status(hours)}"
-        story.append(Paragraph(f"{display_person(person)}: {format_duration(hours)}{suffix}", styles["row"]))
+            status = lorenzo_target_status(hours)
+        total_rows.append(
+            [
+                Paragraph(display_person(person), styles["table_cell"]),
+                Paragraph(format_duration(hours), styles["table_cell"]),
+                Paragraph(status, styles["table_cell"]),
+            ]
+        )
+    available_width = PAGE_WIDTH - 2 * _MARGIN
+    totals_table = Table(
+        total_rows,
+        colWidths=[available_width * 0.42, available_width * 0.18, available_width * 0.40],
+        hAlign="LEFT",
+        splitByRow=1,
+    )
+    totals_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF3ED")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.25, colors.HexColor("#A7B8AD")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.1, colors.HexColor("#E3E8E4")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.4),
+            ]
+        )
+    )
+    story.append(totals_table)
     story.append(Spacer(1, 4 * mm))
 
     sections = (
@@ -325,9 +381,10 @@ def _summary_flowables(
 def _styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("Title", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=14, leading=16, alignment=TA_LEFT),
+        "title": ParagraphStyle("Title", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=14, leading=16, alignment=TA_CENTER, textColor=colors.white),
         "subtitle": ParagraphStyle("Subtitle", parent=base["Normal"], fontName="Helvetica", fontSize=8.5, leading=10),
-        "day": ParagraphStyle("Day", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9, leading=11),
+        "subtitle_on_dark": ParagraphStyle("SubtitleOnDark", parent=base["Normal"], fontName="Helvetica", fontSize=8.5, leading=10, alignment=TA_CENTER, textColor=colors.white),
+        "day": ParagraphStyle("Day", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=9.5, leading=11, textColor=colors.white),
         "section": ParagraphStyle("Section", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10),
         "row": ParagraphStyle("Row", parent=base["Normal"], fontName="Helvetica", fontSize=7, leading=8.4),
         "table_header": ParagraphStyle("TableHeader", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=6.8, leading=8),

@@ -2,7 +2,7 @@
 
 Agente di pianificazione settimanale per:
 
-- **CarpeEvolution Store**
+- **CarpEvolution Store**
 - **Tenuta del Germano**
 
 Il progetto genera un orario settimanale in italiano e può creare un **PDF** pronto da condividere manualmente. Non serve una grafica: su Windows e Mac basta modificare un file e avviare il programma con doppio clic.
@@ -98,12 +98,12 @@ Il PDF settimanale è in formato **A4 verticale** e usa un layout a **card giorn
 
 Dentro ogni sezione il PDF mostra una sola riga per **persona + sede + giorno** quando i turni appartengono alla stessa sede. Se una persona copre più intervalli nello stesso giorno e nello stesso luogo, gli intervalli vengono uniti nella stessa riga. Esempio: invece di due righe separate `14:00-15:00` e `16:30-18:30`, la card mostra `14:00-15:00 / 16:30-18:30`.
 
-Il PDF non forza piu tutta la settimana in una sola pagina: la leggibilita ha priorita sulla compressione. Le settimane semplici possono stare in una pagina, mentre le settimane normali o piene possono usare due pagine; se il riepilogo non entra sotto le card, viene spostato in una pagina di riepilogo.
+Il PDF non forza piu tutta la settimana in una sola pagina: la leggibilita ha priorita sulla compressione. La versione ufficiale privilegia una struttura A4 verticale leggibile: pagina 1 contiene le card giornaliere, mentre la pagina di riepilogo contiene monte ore, note, conflitti e alert; le settimane molto piene possono creare pagine di continuazione senza omettere turni.
 
 Dentro ogni sezione il PDF usa ora una piccola tabella ReportLab allineata, con tre colonne:
 
 ```text
-Persona | Turno/Pausa/Compito | Ore
+Persona | Turno / Pausa / Compito | Ore
 ```
 
 La colonna centrale contiene orario, pausa e compito in testo semplice, ad esempio `07:30-16:30 | pausa 14:00-15:00 | APERTURA LAGO`. La colonna **Ore** resta separata e allineata a destra, così le ore giornaliere sono più facili da scorrere visivamente anche quando il dettaglio del turno va a capo.
@@ -118,7 +118,7 @@ Le giornate chiuse restano compatte, ad esempio `LUNEDI 22/06` seguito da `Lago 
 
 Le barre unicode della vecchia timeline sono state rimosse: il PDF usa solo testo semplice, ad esempio `07:30-16:30` oppure `09:00-12:30 / 15:30-19:30`, per evitare punti interrogativi su telefono e anteprime PDF. Una copertura breve `14:00-15:00` viene indicata come lavoro, non come pausa: la colonna `Pausa` resta `-` se quella persona sta coprendo davvero quell'intervallo.
 
-La **pagina 1** contiene l'intestazione e le card giornaliere dell'orario settimanale, da lunedì a domenica. La **pagina 2** contiene `RIEPILOGO MONTE ORE SETTIMANALE`, `NOTE OPERATIVE`, `CONFLITTI CRITICI`, `ALERT INFORMATIVI` e `MEMORIE OPERATIVE APPLICATE`. Se una settimana estrema contiene troppe note o troppe righe operative, il PDF può creare una pagina di continuazione senza omettere turni e il riepilogo slitta alla pagina successiva.
+La **pagina 1** contiene l'intestazione e le card giornaliere dell'orario settimanale, da lunedì a domenica. La **pagina 2** contiene `RIEPILOGO MONTE ORE`, `NOTE OPERATIVE`, `CONFLITTI CRITICI`, `ALERT INFORMATIVI` e `MEMORIE OPERATIVE APPLICATE`. Se una settimana estrema contiene troppe note o troppe righe operative, il PDF può creare una pagina di continuazione senza omettere turni e il riepilogo slitta alla pagina successiva.
 
 I conflitti critici restano separati dagli alert informativi. Sono conflitti critici, ad esempio, coperture mancanti, sovrapposizioni incompatibili, apertura lago di Gianmarco in una data con codice moglie `M`, o assegnazioni su giorni chiusi senza apertura esplicita. Sono invece alert informativi gli scostamenti di Lorenzo dal target 40 ore o i turni lunghi.
 
@@ -350,7 +350,7 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 
 - salva messaggi liberi come note settimanali persistenti in SQLite;
 - protegge l'accesso con `ALLOWED_TELEGRAM_USER_ID`;
-- genera l'orario con le regole fisse di CarpeEvolution Store e Tenuta del Germano;
+- genera l'orario con le regole fisse di CarpEvolution Store e Tenuta del Germano;
 - valida l'orario e riepiloga eventuali avvisi/conflitti;
 - crea un PDF A4 verticale pronto da inoltrare su Telegram o WhatsApp;
 - invia il PDF direttamente nella chat Telegram;
@@ -421,7 +421,7 @@ Nota salvata con ID 12.
 Settimana: 2026-06-15 - 2026-06-21.
 Data interpretata: 2026-06-18.
 Persona: Giammarco Mengozzi.
-Luogo: CarpeEvolution Store.
+Luogo: CarpEvolution Store.
 Tipo vincolo: copertura_negozio.
 Interpretazione: Giammarco Mengozzi forzato su negozio Giovedì 09:00-12:30. Giammarco Mengozzi forzato su negozio Giovedì 15:30-19:30.
 ```
@@ -955,10 +955,10 @@ sudo systemctl status orari-bot
 L'assistente AI conosce le regole principali:
 
 - Gianmarco Mengozzi è titolare/manager/jolly e può coprire negozio o lago; se serve copertura extra, preferisce il lago salvo assegnazioni esplicite.
-- Angelo Antonelli copre principalmente CarpeEvolution Store.
+- Angelo Antonelli copre principalmente CarpEvolution Store.
 - Lorenzo Sansavini copre principalmente Tenuta del Germano/lago, con 40 ore, 5 giorni, normalmente mercoledì-domenica; lunedì chiuso e martedì riposo preferito.
 - Tenuta del Germano è aperta martedì-domenica 07:30-18:30 e chiusa lunedì.
-- CarpeEvolution Store è aperto martedì-sabato 09:00-12:30 e 15:30-19:30, chiuso domenica e lunedì.
+- CarpEvolution Store è aperto martedì-sabato 09:00-12:30 e 15:30-19:30, chiuso domenica e lunedì.
 - Nel calendario moglie conta solo il codice `M`: se una data ha `M`, Gianmarco non può aprire il lago alle 07:30. Dati luglio/agosto mancanti non creano vincoli.
 
 ### Tool AI disponibili

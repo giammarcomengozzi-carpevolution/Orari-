@@ -27,7 +27,7 @@ def test_export_weekly_schedule_pdf_creates_portrait_pdf_with_compact_layout(
     assert content.startswith(b"%PDF-1.4")
     assert b"/MediaBox [0 0 595.28 841.89]" in content
     assert b"Orario settimanale" in content
-    assert b"CarpeEvolution Store & Tenuta del Germano" in content
+    assert b"CarpEvolution Store & Tenuta del Germano" in content
     assert b"Settimana: 2026-06-08 / 2026-06-14" in content
     assert b"MARTEDI" in content
     assert b"SABATO" in content
@@ -41,14 +41,15 @@ def test_export_weekly_schedule_pdf_creates_portrait_pdf_with_compact_layout(
     assert b"ATTENZIONE" in content
 
 
-def test_standard_weekly_pdf_fits_one_portrait_page_with_bottom_sections(tmp_path):
+def test_standard_weekly_pdf_uses_portrait_schedule_page_and_summary_page(tmp_path):
     schedule = generate_weekly_schedule("", week_start_date="2026-06-22")
 
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert content.count(b"/Type /Page /Parent") == 1
+    assert content.count(b"/Type /Page /Parent") >= 2
     assert b"/MediaBox [0 0 595.28 841.89]" in content
+    assert b"Pagina 2" in content
     assert b"RIEPILOGO MONTE ORE" in content
     assert b"NOTE OPERATIVE" in content
     assert b"CONFLITTI CRITICI" in content
@@ -240,12 +241,12 @@ def test_pdf_day_card_headers_follow_standard_opening_days(tmp_path):
     pdf_path = export_weekly_schedule_pdf(schedule, tmp_path)
     content = pdf_path.read_bytes()
 
-    assert b"Lago chiuso  |  Negozio chiuso" in content
+    assert b"Lago chiuso | Negozio chiuso" in content
     assert (
-        b"Lago aperto 07:30-18:30  |  Negozio aperto 09:00-12:30 / 15:30-19:30"
+        b"Lago aperto 07:30-18:30 | Negozio aperto 09:00-12:30 / 15:30-19:30"
         in content
     )
-    assert b"Lago aperto 07:30-18:30  |  Negozio chiuso" in content
+    assert b"Lago aperto 07:30-18:30 | Negozio chiuso" in content
 
 
 def test_pdf_day_card_headers_show_seasonal_evening_lake_opening(tmp_path):
@@ -256,10 +257,10 @@ def test_pdf_day_card_headers_show_seasonal_evening_lake_opening(tmp_path):
 
     assert b"Lago aperto 07:30-23:00 \\(evento serale\\)" in content
     assert (
-        b"Lago aperto 07:30-23:00 \\(evento serale\\)  |  Negozio aperto 09:00-12:30 / 15:30-19:30"
+        b"Lago aperto 07:30-23:00 \\(evento serale\\) | Negozio aperto 09:00-12:30 / 15:30-19:30"
         in content
     )
-    assert b"Lago aperto 07:30-23:00 \\(evento serale\\)  |  Negozio chiuso" in content
+    assert b"Lago aperto 07:30-23:00 \\(evento serale\\) | Negozio chiuso" in content
     assert b"EVENTO SERALE LAGO" in content
     assert b"CHIUSURA LAGO 23:00" in content
     assert b"SUPPORTO SERALE LAGO" in content
