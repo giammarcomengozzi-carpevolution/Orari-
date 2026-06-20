@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from orari_agent.ai.intent_router import AiIntentRouter
 from orari_agent.ai.audit import AiAuditRepository
 from orari_agent.ai.schemas import InterpretedAction
+from orari_agent.ai.context_loader import AgentContextLoader, AgentContext
 from orari_agent.ai_tools import AiToolExecutor, ToolExecutionResult, DESTRUCTIVE_TOOLS
 
 
@@ -29,16 +30,24 @@ class AgentRuntime:
         self.tools = tools
         self.audit = audit
         self.router = router or AiIntentRouter()
+        self.context_loader = AgentContextLoader(tools)
 
     def can_handle(self, action: InterpretedAction) -> bool:
         return action.intent != "unknown"
 
+    def load_context(self) -> AgentContext:
+        return self.context_loader.load()
+
     def interpret(self, text: str) -> InterpretedAction:
+        # Il contesto viene caricato prima del routing per rendere il runtime
+        # realmente multi-stage anche nei casi deterministici.
+        self.load_context()
         return self.router.interpret(text)
 
     def handle_action(self, user_id: int, text: str, action: InterpretedAction) -> AgentRuntimeResult:
+        context = self.load_context()
         if action.requires_confirmation or not action.tool_name:
-            self._audit(user_id, text, action, {}, {}, action.human_summary)
+            self._audit(user_id, text, action, {"context": context.to_dict()}, {}, action.human_summary)
             return AgentRuntimeResult(action.human_summary, [], action, True)
 
         results: list[ToolExecutionResult] = []
@@ -56,7 +65,7 @@ class AgentRuntime:
             user_id,
             text,
             action,
-            action.tool_arguments,
+            {**action.tool_arguments, "context": context.to_dict()},
             results[-1].data if results else {},
             response,
             error,

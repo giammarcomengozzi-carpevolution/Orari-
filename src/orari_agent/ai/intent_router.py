@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from orari_agent.ai.schemas import InterpretedAction
 
 PEOPLE = {
@@ -18,7 +19,7 @@ class AiIntentRouter:
     """Interpreta frasi naturali frequenti in azioni strutturate e sicure."""
 
     def __init__(self, today: date | None = None) -> None:
-        self.today = today or date.today()
+        self.today = today or datetime.now(ZoneInfo("Europe/Rome")).date()
 
     def interpret(self, text: str) -> InterpretedAction:
         raw = text.strip()

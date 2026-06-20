@@ -153,6 +153,7 @@ class AiAgent:
                 decision.action or "ai_tool_calls",
                 {"tool_calls": tool_calls_payload, "original_message": clean_text},
             )
+            self._audit(user_id, clean_text, decision, tool_calls_payload, [], decision.user_message.strip())
             prefix = decision.user_message.strip()
             message = (
                 f"{prefix}\n{CONFIRMATION_MESSAGE}" if prefix else CONFIRMATION_MESSAGE
