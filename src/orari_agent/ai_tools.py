@@ -83,9 +83,13 @@ class AiToolExecutor:
         if name == "get_last_schedule":
             return self.explain_last_schedule("")
         if name == "validate_schedule":
-            return ToolExecutionResult("validate_schedule", "Validazione eseguita durante la generazione dell’ultimo orario.", {})
+            return self.validate_last_schedule()
         if name == "repair_schedule":
-            return ToolExecutionResult("repair_schedule", "Repair loop deterministico: nessuna riparazione manuale richiesta dal tool.", {})
+            return ToolExecutionResult(
+                "repair_schedule",
+                "Riparazione automatica non disponibile da tool separato: la generazione usa già il motore deterministico e la validazione segnala i conflitti residui.",
+                {"available": False},
+            )
         if name == "get_wife_calendar_info":
             return self.get_wife_calendar_info()
         if name == "list_wife_calendar_m_dates":
@@ -205,6 +209,21 @@ class AiToolExecutor:
             },
             generated_schedule=result,
         )
+
+    def validate_last_schedule(self) -> ToolExecutionResult:
+        snapshot = self.schedule_service.schedules_repository.latest_snapshot()
+        if snapshot is None:
+            return ToolExecutionResult("validate_schedule", "Nessun orario generato da validare.", {"available": False})
+        import json
+        data = json.loads(snapshot["snapshot_json"])
+        validation = data.get("validation", {})
+        critical = validation.get("critical_conflicts", [])
+        alerts = validation.get("informational_alerts", [])
+        message = (
+            f"Validazione ultimo orario: {len(critical)} conflitti critici, "
+            f"{len(alerts)} alert informativi."
+        )
+        return ToolExecutionResult("validate_schedule", message, validation)
 
     def explain_last_schedule(self, question: str = "") -> ToolExecutionResult:
         message = ScheduleExplainer(self.schedule_service.schedules_repository).explain(question)

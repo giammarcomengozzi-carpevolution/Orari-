@@ -73,3 +73,204 @@ def test_tool_executor_save_constraint_calls_repository(tmp_path):
     result = tools.execute("add_weekly_note", {"text": "Venerdì Angelo dopo il negozio al lago fino alle 23", "week_request": "settimana prossima"})
     assert result.data["note_id"] > 0
     assert notes.active_for_week("2026-06-22", "2026-06-28")
+
+import asyncio
+from pathlib import Path
+
+from orari_agent.ai_agent import AiAgent
+from orari_agent.bot import commands
+from orari_agent.storage.ai_repository import AiConversationRepository
+
+
+class TelegramMessage:
+    def __init__(self, text: str = ""):
+        self.text = text
+        self.replies: list[str] = []
+        self.documents: list[dict] = []
+        self.voice = None
+        self.audio = None
+        self.document = None
+        self.photo = None
+        self.caption = ""
+
+    async def reply_text(self, text: str, **kwargs):
+        self.replies.append(text)
+
+    async def reply_document(self, **kwargs):
+        self.documents.append(kwargs)
+
+
+class TelegramUser:
+    id = 123
+
+
+class TelegramUpdate:
+    def __init__(self, text: str = ""):
+        self.effective_message = TelegramMessage(text)
+        self.effective_user = TelegramUser()
+
+
+def telegram_context(bot_data: dict, args: list[str] | None = None):
+    return SimpleNamespace(application=SimpleNamespace(bot_data=bot_data), args=args or [], user_data={})
+
+
+class SnapshotScheduleService:
+    def __init__(self, tmp_path: Path, schedules_repository: SchedulesRepository):
+        self.tmp_path = tmp_path
+        self.schedules_repository = schedules_repository
+        self.calls: list[tuple[str, str]] = []
+
+    def generate_for_week(self, week_start: str, week_end: str):
+        self.calls.append((week_start, week_end))
+        pdf = self.tmp_path / "orario.pdf"
+        pdf.write_bytes(b"pdf")
+        schedule_id = self.schedules_repository.add(
+            week_start=week_start,
+            week_end=week_end,
+            pdf_path=str(pdf),
+            summary=f"Orario generato per {week_start} / {week_end}.",
+            warnings="",
+        )
+        self.schedules_repository.save_snapshot(
+            schedule_id=schedule_id,
+            week_start=week_start,
+            week_end=week_end,
+            snapshot={
+                "week_start": week_start,
+                "week_end": week_end,
+                "notes_used": ["Venerdì Angelo dopo il negozio al lago fino alle 23"],
+                "memories_used": [],
+                "weekly_hours": {"Lorenzo Sansavini": 41.5},
+                "daily_hours": {"Domenica": {"Lorenzo Sansavini": 11.0}},
+                "assignments": [
+                    {"day": "Venerdì", "date": "2026-06-26", "person": "Angelo Antonelli", "location": "Negozio", "start": "09:00", "end": "12:30", "task": "NEGOZIO", "working_hours": 7.5},
+                    {"day": "Venerdì", "date": "2026-06-26", "person": "Angelo Antonelli", "location": "Negozio", "start": "15:30", "end": "19:30", "task": "NEGOZIO", "working_hours": 7.5},
+                    {"day": "Venerdì", "date": "2026-06-26", "person": "Angelo Antonelli", "location": "Lago", "start": "19:30", "end": "23:00", "task": "EVENTO SERALE LAGO", "working_hours": 3.5},
+                    {"day": "Domenica", "date": "2026-06-28", "person": "Lorenzo Sansavini", "location": "Lago", "start": "11:00", "end": "23:00", "task": "CHIUSURA LAGO 23:00", "working_hours": 11.0},
+                ],
+                "validation": {"critical_conflicts": [], "informational_alerts": [{"message": "Lorenzo sopra target 40h"}]},
+            },
+        )
+        return SimpleNamespace(
+            pdf_path=pdf,
+            summary=f"Orario generato per {week_start} / {week_end}.",
+            warnings=[],
+            notes=[],
+            memories=[],
+        )
+
+
+def _telegram_bot_data(tmp_path):
+    connection = connect(tmp_path / "orari.sqlite3")
+    notes = NotesRepository(connection)
+    memories = OperationalMemoryRepository(connection)
+    schedules = SchedulesRepository(connection)
+    schedule_service = SnapshotScheduleService(tmp_path, schedules)
+    tools = AiToolExecutor(notes, memories, schedule_service, WifeCalendarRepository(connection), tmp_path / "orari.sqlite3", tmp_path, tmp_path / "backups")
+    audit = AiAuditRepository(connection)
+    agent = AiAgent(None, tools, AiConversationRepository(connection), audit)
+    return {
+        "allowed_user_id": 123,
+        "notes_repository": notes,
+        "operational_memory_repository": memories,
+        "wife_calendar_repository": WifeCalendarRepository(connection),
+        "schedule_service": schedule_service,
+        "ai_agent": agent,
+        "ai_audit_repository": audit,
+        "database_path": tmp_path / "orari.sqlite3",
+        "data_dir": tmp_path,
+        "backup_dir": tmp_path / "backups",
+        "voice_debug": False,
+    }, notes, schedules, schedule_service
+
+
+def test_telegram_free_text_angelo_after_shop_saves_correct_note(tmp_path):
+    bot_data, notes, *_ = _telegram_bot_data(tmp_path)
+    update = TelegramUpdate("Venerdì Angelo dopo il negozio viene al lago fino alle 23")
+
+    asyncio.run(commands.free_text(update, telegram_context(bot_data)))
+
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
+    assert len(saved) == 1
+    assert "Angelo" in saved[0].raw_text
+    assert "19:30-23:00" in saved[0].raw_text
+    assert "negozio" in saved[0].raw_text.lower()
+
+
+def test_telegram_generation_stores_latest_schedule_snapshot(tmp_path):
+    bot_data, _, schedules, schedule_service = _telegram_bot_data(tmp_path)
+    update = TelegramUpdate("Genera settimana prossima")
+
+    asyncio.run(commands.free_text(update, telegram_context(bot_data)))
+
+    assert schedule_service.calls == [("2026-06-22", "2026-06-28")]
+    assert schedules.latest_snapshot() is not None
+    assert update.effective_message.documents
+
+
+def test_explain_who_closes_friday_and_why_lorenzo_sunday(tmp_path):
+    bot_data, _, schedules, schedule_service = _telegram_bot_data(tmp_path)
+    schedule_service.generate_for_week("2026-06-22", "2026-06-28")
+    explainer = ScheduleExplainer(schedules)
+
+    friday = explainer.explain("Chi chiude venerdì?")
+    sunday = explainer.explain("Perché Lorenzo chiude domenica?")
+
+    assert "Angelo Antonelli" in friday
+    assert "23:00" in friday
+    assert "stagionale" in sunday
+    assert "Lorenzo" in sunday
+
+
+def test_ambiguous_lui_asks_clarification_and_saves_nothing(tmp_path):
+    bot_data, notes, *_ = _telegram_bot_data(tmp_path)
+    update = TelegramUpdate("Venerdì lui va al lago")
+
+    asyncio.run(commands.free_text(update, telegram_context(bot_data)))
+
+    assert "Chi intendi" in update.effective_message.replies[0]
+    assert notes.active_for_week("2026-06-22", "2026-06-28") == []
+
+
+def test_debug_ai_shows_latest_interpreted_intent(tmp_path):
+    bot_data, *_ = _telegram_bot_data(tmp_path)
+    update = TelegramUpdate("Venerdì lui va al lago")
+    asyncio.run(commands.free_text(update, telegram_context(bot_data)))
+    debug_update = TelegramUpdate()
+
+    asyncio.run(commands.debug_ai(debug_update, telegram_context(bot_data)))
+
+    assert "Intento: clarification_required" in debug_update.effective_message.replies[0]
+
+
+class FakeTelegramFile:
+    async def download_to_drive(self, custom_path):
+        Path(custom_path).write_bytes(b"audio")
+
+
+class FakeVoiceAttachment:
+    file_unique_id = "abc"
+    file_size = 10
+
+    async def get_file(self):
+        return FakeTelegramFile()
+
+
+class FakeTranscriber:
+    def transcribe(self, audio_path):
+        return "Venerdì Angelo dopo il negozio viene al lago fino alle 23"
+
+
+def test_voice_transcript_routes_through_same_agent_path(tmp_path):
+    bot_data, notes, *_ = _telegram_bot_data(tmp_path)
+    bot_data["audio_transcriber"] = FakeTranscriber()
+    bot_data["audio_dir"] = tmp_path / "audio"
+    update = TelegramUpdate()
+    update.effective_message.voice = FakeVoiceAttachment()
+
+    asyncio.run(commands.voice_message(update, telegram_context(bot_data)))
+
+    saved = notes.active_for_week("2026-06-22", "2026-06-28")
+    assert len(saved) == 1
+    assert "19:30-23:00" in saved[0].raw_text
+    assert any("Trascrizione" in reply for reply in update.effective_message.replies)

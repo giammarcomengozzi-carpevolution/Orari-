@@ -111,6 +111,9 @@ class ScheduleService:
                 "notes_used": [note.raw_text for note in notes],
                 "memories_used": [memory.raw_text for memory in memories],
                 "warnings": warnings,
+                "assignments": _snapshot_assignments(schedule),
+                "weekly_hours": weekly_hour_totals(schedule),
+                "daily_hours": _daily_hours_snapshot(schedule),
                 "validation": validation.to_dict(),
             },
         )
@@ -157,3 +160,42 @@ def _build_summary(
         f"Conflitti critici: {len(warnings)}.\n"
         f"PDF allegato: {filename}."
     )
+
+
+def _snapshot_assignments(schedule: WeeklySchedule) -> list[dict[str, object]]:
+    assignments: list[dict[str, object]] = []
+    for shift in effective_shifts(schedule):
+        for start, end in _shift_segments(shift.work_time):
+            assignments.append(
+                {
+                    "day": shift.day,
+                    "date": shift.date,
+                    "person": shift.person,
+                    "location": shift.location,
+                    "start": start,
+                    "end": end,
+                    "task": shift.task,
+                    "break_time": shift.break_time,
+                    "working_hours": shift.working_hours,
+                }
+            )
+    return assignments
+
+
+def _daily_hours_snapshot(schedule: WeeklySchedule) -> dict[str, dict[str, float]]:
+    daily: dict[str, dict[str, float]] = {}
+    for shift in effective_shifts(schedule):
+        day_totals = daily.setdefault(shift.day, {})
+        day_totals[shift.person] = day_totals.get(shift.person, 0.0) + shift.working_hours
+    return daily
+
+
+def _shift_segments(work_time: str) -> list[tuple[str, str]]:
+    segments: list[tuple[str, str]] = []
+    for raw_segment in work_time.split("/"):
+        segment = raw_segment.strip()
+        if "-" not in segment:
+            continue
+        start, end = segment.split("-", 1)
+        segments.append((start.strip(), end.strip()))
+    return segments

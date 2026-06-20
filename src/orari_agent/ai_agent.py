@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from orari_agent.ai_tools import AiToolExecutor, DESTRUCTIVE_TOOLS, ToolExecutionResult
 from orari_agent.storage.ai_repository import AiConversationRepository
 from orari_agent.ai.audit import AiAuditRepository
+from orari_agent.ai.agent_runtime import AgentRuntime
 
 LOGGER = logging.getLogger(__name__)
 MISSING_AI_KEY_MESSAGE = "Modalità AI non configurata: manca OPENAI_API_KEY."
@@ -79,11 +80,13 @@ class AiAgent:
         tools: AiToolExecutor,
         repository: AiConversationRepository,
         audit_repository: AiAuditRepository | None = None,
+        runtime: AgentRuntime | None = None,
     ) -> None:
         self.responder = responder
         self.tools = tools
         self.repository = repository
         self.audit_repository = audit_repository
+        self.runtime = runtime or AgentRuntime(tools, audit_repository)
 
     @property
     def configured(self) -> bool:
@@ -91,7 +94,7 @@ class AiAgent:
 
     def handle_message(self, user_id: int, text: str) -> AiHandleResult:
         clean_text = text.strip()
-        if not self.configured:
+        if not self.configured and not hasattr(self.tools, "execute"):
             return AiHandleResult(MISSING_AI_KEY_MESSAGE)
 
         pending = self.repository.get_pending_action(user_id)
@@ -113,6 +116,21 @@ class AiAgent:
                     results,
                 )
             return AiHandleResult(CONFIRMATION_MESSAGE)
+
+        action = self.runtime.interpret(clean_text)
+        if self.runtime.can_handle(action):
+            if action.requires_confirmation and action.tool_name and self.runtime.is_destructive(action):
+                self.repository.save_pending_action(
+                    user_id,
+                    action.intent,
+                    {"tool_calls": [{"name": action.tool_name, "arguments": action.tool_arguments}], "original_message": clean_text},
+                )
+                return AiHandleResult(action.human_summary)
+            runtime_result = self.runtime.handle_action(user_id, clean_text, action)
+            return AiHandleResult(runtime_result.message, runtime_result.tool_results)
+
+        if not self.configured:
+            return AiHandleResult(MISSING_AI_KEY_MESSAGE)
 
         assert self.responder is not None
         try:
@@ -196,7 +214,7 @@ class AiAgent:
                 normalized_text=text.lower(),
                 detected_intent=decision.action or "unknown",
                 confidence=decision.confidence,
-                requires_confirmation=decision.needs_confirmation,
+                requires_confirmation=self._requires_confirmation(decision),
                 tool_called=str(first_call.get("name", "")),
                 tool_arguments=first_call.get("arguments", {}) if isinstance(first_call.get("arguments", {}), dict) else {},
                 tool_result=first_result,

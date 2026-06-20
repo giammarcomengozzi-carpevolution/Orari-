@@ -1052,8 +1052,10 @@ Il flusso AI è diviso in stadi tracciabili:
 3. **Tool executor**: esegue solo strumenti sicuri e validati, ad esempio salvataggio nota, lista memorie, generazione orario, backup o spiegazione ultimo orario.
 4. **Scheduling planner**: continua a usare il generatore deterministico esistente, combinando regole fisse, note, memorie e calendario moglie.
 5. **Schedule validator**: separa conflitti critici e alert informativi.
-6. **Repair/explanation layer**: conserva lo snapshot dell'ultimo orario e risponde a domande successive.
+6. **Explanation layer**: conserva lo snapshot dell'ultimo orario e risponde a domande successive.
 7. **Audit trail**: salva l'interpretazione AI nella tabella `ai_events` per debug.
+
+Nota onesta sul repair: non esiste ancora un tool separato di riparazione automatica generale. La generazione usa il motore deterministico esistente e la validazione segnala i conflitti residui; eventuali riparazioni automatiche complete saranno una fase successiva.
 
 ### Confidenza e conferme
 
@@ -1078,7 +1080,7 @@ Lo strato AI può chiamare strumenti validati, tra cui:
 - `add_weekly_note` / `list_weekly_notes` / `delete_weekly_note`;
 - `add_operational_memory` / `list_operational_memories`;
 - `generate_schedule`;
-- `validate_schedule` e `repair_schedule` come passaggi controllati della generazione;
+- `validate_schedule` per leggere la validazione dell’ultimo orario; `repair_schedule` risponde chiaramente che la riparazione automatica separata non è ancora disponibile;
 - `explain_last_schedule` / `get_last_schedule`;
 - `get_wife_calendar_info` / `list_wife_calendar_m_dates`;
 - `create_backup` / `backup_info`.
@@ -1130,7 +1132,7 @@ Bot: Ok, salvo vincolo settimanale: Angelo Antonelli copre il negozio 09:00-12:3
 
 ```text
 Utente: Genera settimana prossima.
-Bot: Genero l'orario della settimana richiesta. Uso note, memorie e calendario moglie salvati. Dopo la generazione invio il PDF con caption breve e il riepilogo in messaggi separati.
+Bot: Genero l'orario della settimana richiesta. Uso note, memorie e calendario moglie salvati. Dopo la generazione invio il PDF con caption breve, salvo lo snapshot e mando il riepilogo in messaggi separati.
 ```
 
 ```text
