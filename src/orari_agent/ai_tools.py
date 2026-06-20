@@ -84,12 +84,6 @@ class AiToolExecutor:
             return self.explain_last_schedule("")
         if name == "validate_schedule":
             return self.validate_last_schedule()
-        if name == "repair_schedule":
-            return ToolExecutionResult(
-                "repair_schedule",
-                "Riparazione automatica non disponibile da tool separato: la generazione usa già il motore deterministico e la validazione segnala i conflitti residui.",
-                {"available": False},
-            )
         if name == "get_wife_calendar_info":
             return self.get_wife_calendar_info()
         if name == "list_wife_calendar_m_dates":

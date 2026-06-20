@@ -1055,7 +1055,7 @@ Il flusso AI è diviso in stadi tracciabili:
 6. **Explanation layer**: conserva lo snapshot dell'ultimo orario e risponde a domande successive.
 7. **Audit trail**: salva l'interpretazione AI nella tabella `ai_events` per debug.
 
-Nota onesta sul repair: non esiste ancora un tool separato di riparazione automatica generale. La generazione usa il motore deterministico esistente e la validazione segnala i conflitti residui; eventuali riparazioni automatiche complete saranno una fase successiva.
+Nota onesta sulla riparazione automatica: in questa PR non viene esposto alcun tool `repair_schedule`. La generazione usa il motore deterministico esistente e la validazione segnala i conflitti residui; eventuali riparazioni automatiche complete saranno una fase successiva.
 
 ### Confidenza e conferme
 
@@ -1080,7 +1080,7 @@ Lo strato AI può chiamare strumenti validati, tra cui:
 - `add_weekly_note` / `list_weekly_notes` / `delete_weekly_note`;
 - `add_operational_memory` / `list_operational_memories`;
 - `generate_schedule`;
-- `validate_schedule` per leggere la validazione dell’ultimo orario; `repair_schedule` risponde chiaramente che la riparazione automatica separata non è ancora disponibile;
+- `validate_schedule` per leggere la validazione reale salvata nell’ultimo snapshot;
 - `explain_last_schedule` / `get_last_schedule`;
 - `get_wife_calendar_info` / `list_wife_calendar_m_dates`;
 - `create_backup` / `backup_info`.
