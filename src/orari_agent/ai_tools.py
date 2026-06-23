@@ -16,6 +16,7 @@ from orari_agent.storage.operational_memory_repository import (
 )
 from orari_agent.storage.week_parser import parse_note_metadata, parse_week_request
 from orari_agent.storage.wife_calendar_repository import WifeCalendarRepository
+from orari_agent.ai.schedule_explainer import ScheduleExplainer
 
 DESTRUCTIVE_TOOLS = {
     "delete_weekly_notes_for_week",
@@ -71,12 +72,18 @@ class AiToolExecutor:
             )
         if name == "add_operational_memory":
             return self.add_operational_memory(str(arguments.get("text", "")).strip())
-        if name == "list_operational_memory":
+        if name in {"list_operational_memory", "list_operational_memories"}:
             return self.list_operational_memory()
         if name == "generate_schedule":
             return self.generate_schedule(
                 str(arguments.get("week_request", "")).strip()
             )
+        if name == "explain_last_schedule":
+            return self.explain_last_schedule(str(arguments.get("question", "")).strip())
+        if name == "get_last_schedule":
+            return self.explain_last_schedule("")
+        if name == "validate_schedule":
+            return self.validate_last_schedule()
         if name == "get_wife_calendar_info":
             return self.get_wife_calendar_info()
         if name == "list_wife_calendar_m_dates":
@@ -196,6 +203,25 @@ class AiToolExecutor:
             },
             generated_schedule=result,
         )
+
+    def validate_last_schedule(self) -> ToolExecutionResult:
+        snapshot = self.schedule_service.schedules_repository.latest_snapshot()
+        if snapshot is None:
+            return ToolExecutionResult("validate_schedule", "Nessun orario generato da validare.", {"available": False})
+        import json
+        data = json.loads(snapshot["snapshot_json"])
+        validation = data.get("validation", {})
+        critical = validation.get("critical_conflicts", [])
+        alerts = validation.get("informational_alerts", [])
+        message = (
+            f"Validazione ultimo orario: {len(critical)} conflitti critici, "
+            f"{len(alerts)} alert informativi."
+        )
+        return ToolExecutionResult("validate_schedule", message, validation)
+
+    def explain_last_schedule(self, question: str = "") -> ToolExecutionResult:
+        message = ScheduleExplainer(self.schedule_service.schedules_repository).explain(question)
+        return ToolExecutionResult("explain_last_schedule", message, {"question": question})
 
     def get_wife_calendar_info(self) -> ToolExecutionResult:
         entries = self.wife_calendar_repository.list_entries("M")
