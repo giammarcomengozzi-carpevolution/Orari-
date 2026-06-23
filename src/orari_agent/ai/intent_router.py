@@ -118,7 +118,10 @@ def _times(text: str) -> tuple[str | None, str | None]:
 def _week_request(text: str) -> str:
     if "settimana prossima" in text or "prossima settimana" in text:
         return "settimana prossima"
-    if "questa settimana" in text:
+    if re.search(
+        r"\b(?:questa\s+settimana|settimana\s+(?:corrente|attuale|in\s+corso)|questa\s+(?:corrente|attuale|in\s+corso))\b",
+        text,
+    ):
         return "questa settimana"
     if "dal " in text and " al " in text:
         return text
