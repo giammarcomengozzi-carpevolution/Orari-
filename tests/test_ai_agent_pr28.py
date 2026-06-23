@@ -72,7 +72,7 @@ def test_tool_executor_save_constraint_calls_repository(tmp_path):
     tools = AiToolExecutor(notes, OperationalMemoryRepository(connection), fake_service, WifeCalendarRepository(connection), tmp_path / "orari.sqlite3", tmp_path, tmp_path / "backups")
     result = tools.execute("add_weekly_note", {"text": "Venerdì Angelo dopo il negozio al lago fino alle 23", "week_request": "settimana prossima"})
     assert result.data["note_id"] > 0
-    assert notes.active_for_week("2026-06-22", "2026-06-28")
+    assert notes.active_for_week("2026-06-29", "2026-07-05")
 
 import asyncio
 from pathlib import Path
@@ -190,7 +190,7 @@ def test_telegram_free_text_angelo_after_shop_saves_correct_note(tmp_path):
 
     asyncio.run(commands.free_text(update, telegram_context(bot_data)))
 
-    saved = notes.active_for_week("2026-06-22", "2026-06-28")
+    saved = notes.active_for_week("2026-06-29", "2026-07-05")
     assert len(saved) == 1
     assert "Angelo" in saved[0].raw_text
     assert "19:30-23:00" in saved[0].raw_text
@@ -203,7 +203,7 @@ def test_telegram_generation_stores_latest_schedule_snapshot(tmp_path):
 
     asyncio.run(commands.free_text(update, telegram_context(bot_data)))
 
-    assert schedule_service.calls == [("2026-06-22", "2026-06-28")]
+    assert schedule_service.calls == [("2026-06-29", "2026-07-05")]
     assert schedules.latest_snapshot() is not None
     assert update.effective_message.documents
 
@@ -229,7 +229,7 @@ def test_ambiguous_lui_asks_clarification_and_saves_nothing(tmp_path):
     asyncio.run(commands.free_text(update, telegram_context(bot_data)))
 
     assert "Chi intendi" in update.effective_message.replies[0]
-    assert notes.active_for_week("2026-06-22", "2026-06-28") == []
+    assert notes.active_for_week("2026-06-29", "2026-07-05") == []
 
 
 def test_debug_ai_shows_latest_interpreted_intent(tmp_path):
@@ -270,7 +270,39 @@ def test_voice_transcript_routes_through_same_agent_path(tmp_path):
 
     asyncio.run(commands.voice_message(update, telegram_context(bot_data)))
 
-    saved = notes.active_for_week("2026-06-22", "2026-06-28")
+    saved = notes.active_for_week("2026-06-29", "2026-07-05")
     assert len(saved) == 1
     assert "19:30-23:00" in saved[0].raw_text
     assert any("Trascrizione" in reply for reply in update.effective_message.replies)
+
+
+def test_router_current_week_generation_aliases_pr29():
+    for text in (
+        "Genera settimana in corso",
+        "Genera settimana corrente",
+        "Genera l’orario della settimana attuale",
+    ):
+        action = AiIntentRouter(today=date(2026, 6, 23)).interpret(text)
+        assert action.intent == "generate_schedule"
+        assert action.tool_arguments["week_request"] == "questa settimana"
+
+
+def test_telegram_free_text_current_week_generation_aliases_pr29(tmp_path):
+    for text in ("Genera settimana in corso", "Genera settimana corrente"):
+        bot_data, _, _, schedule_service = _telegram_bot_data(tmp_path)
+        update = TelegramUpdate(text)
+
+        asyncio.run(commands.free_text(update, telegram_context(bot_data)))
+
+        assert schedule_service.calls == [("2026-06-22", "2026-06-28")]
+        assert "Genero l'orario questa settimana." in update.effective_message.replies[0]
+
+
+def test_telegram_genera_command_current_week_aliases_pr29(tmp_path):
+    for args in (["questa", "settimana"], ["settimana", "in", "corso"]):
+        bot_data, _, _, schedule_service = _telegram_bot_data(tmp_path)
+        update = TelegramUpdate()
+
+        asyncio.run(commands.genera(update, telegram_context(bot_data, args=args)))
+
+        assert schedule_service.calls == [("2026-06-22", "2026-06-28")]

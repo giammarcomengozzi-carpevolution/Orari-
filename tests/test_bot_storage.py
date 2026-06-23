@@ -135,3 +135,33 @@ def test_saved_note_message_includes_interpretation_summary(tmp_path):
     assert summary is not None
     assert "negozio" in summary
     assert "lago" not in summary
+
+
+def test_parse_week_request_current_week_aliases_pr29():
+    expected = ("2026-06-22", "2026-06-28")
+    for text in (
+        "questa settimana",
+        "settimana corrente",
+        "settimana attuale",
+        "settimana in corso",
+    ):
+        start, end = parse_week_request(text, today=date(2026, 6, 23))
+        assert (start.isoformat(), end.isoformat()) == expected
+
+
+def test_parse_week_request_pr29_keeps_next_week_and_explicit_range():
+    start, end = parse_week_request("settimana prossima", today=date(2026, 6, 23))
+    assert (start.isoformat(), end.isoformat()) == ("2026-06-29", "2026-07-05")
+
+    start, end = parse_week_request("dal 22 al 28 giugno", today=date(2026, 6, 23))
+    assert (start.isoformat(), end.isoformat()) == ("2026-06-22", "2026-06-28")
+
+
+def test_parse_note_metadata_current_week_aliases_pr29():
+    expected = ("2026-06-22", "2026-06-28")
+    for text in (
+        "Questa settimana venerdì Angelo dopo il negozio viene al lago fino alle 23",
+        "Settimana in corso venerdì Lorenzo esce alle 15",
+    ):
+        metadata = parse_note_metadata(text, today=date(2026, 6, 23))
+        assert (metadata.target_week_start.isoformat(), metadata.target_week_end.isoformat()) == expected

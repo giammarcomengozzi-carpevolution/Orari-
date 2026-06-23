@@ -150,7 +150,10 @@ def parse_note_metadata(text: str, today: date | None = None) -> ParsedNoteMetad
 
 def _parse_relative_week(text: str, base: date) -> tuple[date, date] | None:
     current_start, _ = week_bounds_for(base)
-    if re.search(r"\bquesta\s+settimana\b", text):
+    if re.search(
+        r"\b(?:questa\s+settimana|settimana\s+(?:corrente|attuale|in\s+corso)|questa\s+(?:corrente|attuale|in\s+corso))\b",
+        text,
+    ):
         return current_start, current_start + timedelta(days=6)
     if re.search(r"\b(?:settimana\s+prossima|prossima\s+settimana)\b", text):
         start = current_start + timedelta(days=7)

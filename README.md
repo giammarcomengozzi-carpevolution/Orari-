@@ -395,8 +395,11 @@ La CLI e i launcher storici restano disponibili; il bot usa lo stesso motore di 
 - `/moglie_cancella YYYY-MM-DD` — elimina il codice salvato per quella data.
 - `/moglie_reset` — chiede conferma prima di svuotare il calendario moglie.
 - `/moglie_reset confermo` — svuota tutte le righe del calendario moglie.
-- `/genera` — genera il PDF della settimana prossima.
-- `/genera dal 17 al 23 giugno` — genera il PDF della settimana indicata. Il bot invia anche un riepilogo breve con intervallo settimana, numero di note usate, numero di memorie operative applicate, numero di avvisi/conflitti e nome del file PDF allegato.
+- `/genera` — genera il PDF usando il comportamento predefinito esistente (settimana prossima).
+- `/genera questa settimana` — genera il PDF della settimana corrente.
+- `/genera settimana in corso` — genera il PDF della settimana corrente.
+- `/genera settimana prossima` — genera il PDF della settimana prossima.
+- `/genera dal 17 al 23 giugno` — genera il PDF dell’intervallo specifico indicato. Il bot invia anche un riepilogo breve con intervallo settimana, numero di note usate, numero di memorie operative applicate, numero di avvisi/conflitti e nome del file PDF allegato.
 - `/reset_settimana dal 17 al 23 giugno confermo` — archivia le note attive della settimana indicata.
 - `/trascrivi_ultimo` — mostra l’ultima trascrizione vocale salvata per l’utente autorizzato, utile per debug.
 
@@ -585,7 +588,7 @@ All'avvio il bot crea automaticamente le tabelle:
 
 Il parser delle settimane è deterministico e usa regole italiane:
 
-- `questa settimana` = settimana corrente da lunedì a domenica;
+- `questa settimana`, `settimana corrente`, `settimana attuale` e `settimana in corso` = settimana corrente da lunedì a domenica;
 - `settimana prossima` e `prossima settimana` = prossima settimana da lunedì a domenica;
 - `fra 2 settimane`, `tra 2 settimane`, `fra due settimane`, `tra due settimane` = settimana dopo la prossima;
 - `dal 17 al 23 giugno` = intervallo esatto indicato;
